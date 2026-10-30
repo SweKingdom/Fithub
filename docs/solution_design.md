@@ -483,3 +483,19 @@ Re-checked US-123 and US-124 against §3–§5, ADR-008/009/010/011/016: specs a
 - Credit expiry dates in the source are ignored.
 - Personal data in import files and reports. Mitigation: git-ignored dirs, deletion after sign-off.
 - Credits must be imported before members get access (US-125).
+
+## FT-116 Weekly attendance report (US-137) – refinement notes
+
+**Scope.** Read-only reporting; no new table, migration, configuration or error code. Module `api/src/modules/reports` (`routes`, `service`, `week`, `repository`, `csv`, `dto`, `errors`); web `ReportsPage` at `/reports`.
+
+**API.** `GET /api/reports/attendance?clubId&week=YYYY-Www&format=json|csv` — `club_manager` only, own club only (403 `FORBIDDEN` otherwise), `Cache-Control: no-store`. Default week = last completed ISO week in club time; future weeks → 400 `VALIDATION_ERROR` (`fieldErrors.week`).
+
+**Data rules.** Week bounds are half-open `[Monday 00:00, next Monday 00:00)` in `club.timezone`, converted to UTC (DST-safe: bounds computed per week, never +168 h). Booked = `confirmed` bookings; attended/no-show/not recorded from `booking.attendance`; cancellations = `cancelled` bookings; `waitlistAtStart` = waitlist entries still waiting at class start (`expired`, or `waiting` once started). Cancelled classes: row kept, all counts 0. Rate = attended/booked ×100, one decimal, null when booked = 0. Aggregation in one indexed SQL query (`gym_class_club_start_idx`, `booking_class_status_idx`); rate and totals in pure service code.
+
+**Security.** `requireRole('club_manager')` + service-level club check; added to the access matrix; CSV guards against spreadsheet formula injection; no member PII in the report.
+
+**ADR-US137-1 · Aggregate on read, no reporting table · Reason: tens of classes per club-week, existing indexes suffice, always current · Alternatives: materialised weekly snapshot (stale, extra job), per-class counters on `gym_class` (drift risk) · Consequence: revisit if volume grows by orders of magnitude.**
+
+**ADR-US137-2 · Week navigation via buttons, not `<input type="week">` · Reason: unsupported in Firefox/Safari · Alternative: native picker.**
+
+**Risks.** (1) Report accuracy depends on attendance being recorded (US-129): unrecorded classes show as "not recorded" — low likelihood after the auto no-show sweep, medium impact. (2) DST/ISO-week edge cases — mitigated by unit tests across DST changes and year boundaries. (3) Open requirements (week definition, e-mail delivery, chain view) — assumptions recorded in US-137; e-mail delivery would need the job runner (US-133) and the `Notifier` port.
