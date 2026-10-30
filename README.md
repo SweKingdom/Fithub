@@ -1,10 +1,8 @@
 # FitHub
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/fithub/fithub/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fithub/fithub/actions/workflows/ci.yml)
 
 FitHub is a gym class booking app: a React web app (`web/`) backed by a Fastify JSON API (`api/`) and a PostgreSQL 16 database. The requirements are in [docs/project_brief.md](docs/project_brief.md) and the architecture in [docs/solution_design.md](docs/solution_design.md).
-
-> Replace `OWNER/REPO` in the badge above with the owner and name of the GitHub repository.
 
 ## Getting started
 

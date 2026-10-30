@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
@@ -25,7 +25,7 @@ export function healthRoutes(app: FastifyInstance, db: Kysely<Database>): void {
   app.withTypeProvider<ZodTypeProvider>().get(
     '/health',
     { schema: { response: { 200: healthyResponse, 503: unhealthyResponse } } },
-    async (request, reply) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         await pingDatabase(db);
         return { status: 'ok' as const, db: 'ok' as const };
