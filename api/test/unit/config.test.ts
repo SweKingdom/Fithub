@@ -64,6 +64,9 @@ describe('payments config', () => {
       ['STRIPE_TIMEOUT_MS', '999', 'must be an integer between 1000 and 30000'],
       ['STRIPE_TIMEOUT_MS', '30001', 'must be an integer between 1000 and 30000'],
       ['STRIPE_TIMEOUT_MS', 'fast', 'must be an integer between 1000 and 30000'],
+      ['PAYMENT_HOLD_MINUTES', '0', 'must be an integer between 1 and 1440'],
+      ['PAYMENT_HOLD_MINUTES', '1441', 'must be an integer between 1 and 1440'],
+      ['PAYMENT_HOLD_MINUTES', 'soon', 'must be an integer between 1 and 1440'],
       ['STRIPE_LIVE_MODE_ALLOWED', 'yes', 'must be true or false'],
     ])('rejects malformed %s=%s', (variable, value, reason) => {
       expect(messageOf({ ...validEnv, [variable]: value })).toBe(
@@ -94,7 +97,7 @@ describe('payments config', () => {
     });
 
     it('accepts a complete valid environment and normalises the currency', () => {
-      const { payments } = loadConfig({ ...validEnv, STRIPE_TIMEOUT_MS: '5000' });
+      const { payments } = loadConfig({ ...validEnv, STRIPE_TIMEOUT_MS: '5000', PAYMENT_HOLD_MINUTES: '45' });
       expect(payments).toEqual({
         enabled: true,
         mode: 'test',
@@ -104,6 +107,7 @@ describe('payments config', () => {
         stripeTimeoutMs: 5000,
         dropInPriceAmount: 1500,
         dropInCurrency: 'eur',
+        holdMinutes: 45,
       });
     });
 
@@ -111,6 +115,10 @@ describe('payments config', () => {
       const { payments } = loadConfig({ ...validEnv, STRIPE_SECRET_KEY: 'rk_test_fake' });
       expect(payments.enabled && payments.stripeTimeoutMs).toBe(10000);
       expect(payments.mode).toBe('test');
+    });
+
+    it('defaults PAYMENT_HOLD_MINUTES to 30 (US-132)', () => {
+      expect(loadConfig(validEnv).payments.holdMinutes).toBe(30);
     });
   });
 
@@ -161,6 +169,7 @@ describe('payments config', () => {
       stripeTimeoutMs: null,
       dropInPriceAmount: null,
       dropInCurrency: null,
+      holdMinutes: null,
     };
 
     it('starts with an empty environment and payments off', () => {
@@ -172,6 +181,7 @@ describe('payments config', () => {
         PAYMENTS_ENABLED: 'false',
         STRIPE_SECRET_KEY: 'abc',
         DROP_IN_PRICE_AMOUNT: '0',
+        PAYMENT_HOLD_MINUTES: '0',
       });
       expect(payments.enabled).toBe(false);
       expect(payments.stripeSecretKey).toBeNull();
