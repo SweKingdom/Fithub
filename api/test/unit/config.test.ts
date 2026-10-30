@@ -152,18 +152,19 @@ describe('payments config', () => {
   });
 
   describe('AC 4: disabled by default', () => {
+    const paymentsOff = {
+      enabled: false,
+      mode: null,
+      stripeSecretKey: null,
+      stripePublishableKey: null,
+      stripeWebhookSecret: null,
+      stripeTimeoutMs: null,
+      dropInPriceAmount: null,
+      dropInCurrency: null,
+    };
+
     it('starts with an empty environment and payments off', () => {
-      const { payments } = loadConfig({});
-      expect(payments).toEqual({
-        enabled: false,
-        mode: null,
-        stripeSecretKey: null,
-        stripePublishableKey: null,
-        stripeWebhookSecret: null,
-        stripeTimeoutMs: null,
-        dropInPriceAmount: null,
-        dropInCurrency: null,
-      });
+      expect(loadConfig({}).payments).toEqual(paymentsOff);
     });
 
     it('ignores Stripe variables, even malformed ones, when PAYMENTS_ENABLED=false', () => {
@@ -174,6 +175,13 @@ describe('payments config', () => {
       });
       expect(payments.enabled).toBe(false);
       expect(payments.stripeSecretKey).toBeNull();
+    });
+
+    it('ignores a malformed STRIPE_LIVE_MODE_ALLOWED when PAYMENTS_ENABLED=false', () => {
+      expect(loadConfig({ PAYMENTS_ENABLED: 'false', STRIPE_LIVE_MODE_ALLOWED: 'yes' }).payments).toEqual(
+        paymentsOff,
+      );
+      expect(loadConfig({ STRIPE_LIVE_MODE_ALLOWED: 'yes' }).payments).toEqual(paymentsOff);
     });
 
     it('logs payments.enabled=false when off', () => {

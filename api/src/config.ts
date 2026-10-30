@@ -78,11 +78,12 @@ const envSchema = z
 
     const paymentsEnabled = parseBoolean(env.PAYMENTS_ENABLED);
     if (paymentsEnabled === 'invalid') fail('PAYMENTS_ENABLED', 'must be true or false');
-    const liveAllowed = parseBoolean(env.STRIPE_LIVE_MODE_ALLOWED);
-    if (liveAllowed === 'invalid') fail('STRIPE_LIVE_MODE_ALLOWED', 'must be true or false');
 
     // Rule 1: payments off (or an unusable switch) → no payment checks, Stripe variables are ignored.
     if (paymentsEnabled !== true) return;
+
+    const liveAllowed = parseBoolean(env.STRIPE_LIVE_MODE_ALLOWED);
+    if (liveAllowed === 'invalid') fail('STRIPE_LIVE_MODE_ALLOWED', 'must be true or false');
 
     // Rules 2 and 3: presence, then format. The value is never echoed.
     const checkFormat = (variable: string, value: string | undefined, pattern: RegExp): string | null => {
