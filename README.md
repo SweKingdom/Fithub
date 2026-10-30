@@ -20,6 +20,7 @@ Payments are off unless `PAYMENTS_ENABLED=true`. When they are off, all other va
 | `STRIPE_TIMEOUT_MS` | Per-request timeout for Stripe calls, integer 1000–30000 | `10000` | — |
 | `DROP_IN_PRICE_AMOUNT` | Drop-in price in minor units (e.g. cents), integer 1–99999999. Same price for every class and club. Value from the PO | none | `PAYMENTS_ENABLED=true` |
 | `DROP_IN_CURRENCY` | ISO 4217 code, 3 letters, normalised to lower case. Value from the PO | none | `PAYMENTS_ENABLED=true` |
+| `PAYMENT_HOLD_MINUTES` | Minutes an unpaid drop-in booking holds its place, integer 1–1440, counted from the booking time and never past the class start (US-132) | `30` | — |
 
 Rules:
 
@@ -27,10 +28,11 @@ Rules:
 - Use test-mode keys in every non-production environment. Live keys are accepted only where `STRIPE_LIVE_MODE_ALLOWED=true` (production).
 - The secret and publishable key must be from the same mode.
 - There is one Stripe account for all four clubs.
+- The drop-in price, currency and Stripe account ownership are not decided yet. Do not set `PAYMENTS_ENABLED=true` in production until the product owner has confirmed them.
 
 ### Stripe webhook per environment
 
-Register `https://{api-host}/webhooks/stripe` in the Stripe dashboard (test mode for non-production) with exactly these events: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Use the same API version as the one pinned in `api/src/modules/payments/stripe-gateway.ts`. Store the endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`.
+Register `https://{api-host}/webhooks/stripe` in the Stripe dashboard (test mode for non-production) with exactly these events: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Use the same API version as the one pinned in `api/src/modules/payments/stripe-gateway.ts` (`STRIPE_API_VERSION`). Store the endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`.
 
 ### Testing Stripe webhooks locally
 
