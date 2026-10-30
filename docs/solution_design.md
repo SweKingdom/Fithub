@@ -422,22 +422,24 @@ Format: Decision · Reason · Alternatives · Consequences. Numbering note: ADR-
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Concurrent full-document saves by different refinements overwrite each other (happened: US-117/US-118 content was lost and ADR-014…016 numbers were reused) | Med | Med | Agents update single `##` sections where possible (the section tool does not address `###` subsections — it appends a new section) and re-read the full document before a full rewrite |
-| Stories reference old ADR numbers: US-120 cites "ADR-015" for `date-fns-tz` (now ADR-018); US-126 cites "ADR-016" (now ADR-019); TK-119 may cite "ADR-014" for the test-DB guard (now ADR-017) | High | Low | Planner informed; fix the references when the stories are next touched. Content is unchanged |
-| US-122 may still use the old 401 text "Please sign in." and `requireAuth` per route (US-127 is aligned since the FT-112 re-refinement) | Med | Low | ADR-008/ADR-015 and §5 are authoritative (flat body, 409, "Please sign in to continue.", global hook); align during implementation |
-| US-127 merges before US-123 / US-128 and the shared pieces (`bookings/access.ts`, `bookings.access.test.ts`, `WAITLIST_PROMOTION_CUTOFF_MINUTES`) do not exist yet | Med | Low | US-127 spec says "create if missing" with the same definition; the later story extends instead of re-creating |
-| `requireRole` example in US-118 uses `preHandler`, US-120 needs `preValidation` (403 before 400) | Med | Low | Convention in §3: attach as `preValidation`; `requireRole` returns a plain hook function usable in either |
+| Concurrent full-document saves by different refinements overwrite each other (this happened: US-117/US-118 content was lost and ADR-014…016 numbers were reused) | Med | Med | Agents update single `##` sections where possible. The section tool does not address `###` subsections — it appends a new section. Agents re-read the full document before any full rewrite |
+| Stories reference old ADR numbers: US-126 cites "ADR-016" (now ADR-019); TK-119 may cite "ADR-014" for the test-DB guard (now ADR-017). US-120 was fixed on 2026-10-31 | Med | Low | Planner informed; fix the references when the stories are next touched. The content is unchanged |
+| US-122 may still use the old 401 text "Please sign in." and a per-route `requireAuth` (US-120 and US-127 are aligned) | Med | Low | ADR-008/ADR-015 and §5 are authoritative (flat body, 409, "Please sign in to continue.", global hook); align during implementation |
+| US-127 merges before US-123 / US-128, so the shared pieces (`bookings/access.ts`, `bookings.access.test.ts`, `WAITLIST_PROMOTION_CUTOFF_MINUTES`) do not exist yet | Med | Low | The US-127 spec says "create if missing" with the same definition; the later story extends instead of re-creating |
+| The `requireRole` example in US-118 uses `preHandler`, but US-120 needs `preValidation` (403 before 400) | Med | Low | Convention in §3: attach as `preValidation`. `requireRole(roles, message?)` returns a plain hook function usable in either |
+| The zod major version (3 vs 4) changes the ISO date-time API (`z.string().datetime` vs `z.iso.datetime`) | Low | Low | TK-119 pins the version; the US-120 spec names both forms |
+| A staff user without `club_id` cannot create classes | Low | Low | The service returns 403 club scope; `user:create` (US-118) should require a club for staff |
 | The PO picks SSO or another auth method after US-118 is built | Med | Med | `authenticate()` is the single replacement point; guards, sessions and `request.user` stay |
 | Imported members (US-135) and new drop-ins have no password and cannot sign in on day one | High | High | Open question on onboarding; follow-up story before go-live; operator CLI in the meantime |
-| US-117 merged before US-118 leaves `GET /api/clubs` without auth on `main` | Med | Low | Release constraint: ship together; route-table test covers the route |
+| US-117 merged before US-118 leaves `GET /api/clubs` without auth on `main` | Med | Low | Release constraint: ship them together; the route-table test covers the route |
 | In-memory rate-limit store not shared between API instances | Low | Med | Single instance assumed; move to a shared store when scaling out |
-| scrypt 2^17 uses 128 MiB per concurrent sign-in | Low | Med | Rate limit, low volume, libuv pool caps concurrency; cost configurable |
-| Club master data not confirmed before go-live | Med | Med | Pre-deploy step on US-117; seed refuses to run without `clubs.json` |
-| Schedule shows stale free places between load and booking | High | Low | Expected (no real-time updates); booking re-checks under the class lock and the UI refreshes after every action and on error (US-121/US-122) |
-| Schedule query degrades as US-126/US-127 add joins | Low | Med | Single statement, ≤ 560 rows, indexed joins; p95 < 300 ms target checked in the integration test data set |
+| scrypt 2^17 uses 128 MiB per concurrent sign-in | Low | Med | Rate limit, low volume, and the libuv pool caps concurrency; cost is configurable |
+| Club master data not confirmed before go-live | Med | Med | Pre-deploy step on US-117; the seed refuses to run without `clubs.json` |
+| Schedule shows stale free places between load and booking | High | Low | Expected (no real-time updates). Booking re-checks under the class lock, and the UI refreshes after every action and on error (US-121/US-122) |
+| Schedule query degrades as US-126/US-127 add joins | Low | Med | Single statement, ≤ 560 rows, indexed joins; p95 < 300 ms target checked against the integration test data set |
 | Drop-in bookings hold places in `pending_payment` if US-122 ships before US-132/US-133 | Med | Med | Release constraint on US-122; hold expiry defined in US-133 |
-| Class cancelled while drop-in payments are live but refunds (US-134) are not | Med | High | Pre-deploy step on US-126: manual refunds in Stripe; deliver US-134 with US-132 |
-| Class cancellation assumptions (instructor scope, full refund/credit, no reinstating, cancelled classes visible on the schedule) are wrong | Med | Med | Rules isolated in `classes/policy.ts`, US-125/US-134 handlers and one badge rule in `ClassCard`; questions recorded |
+| A class is cancelled while drop-in payments are live but refunds (US-134) are not | Med | High | Pre-deploy step on US-126: manual refunds in Stripe; deliver US-134 with US-132 |
+| Class cancellation assumptions are wrong (instructor scope, full refund/credit, no reinstating, cancelled classes visible on the schedule) | Med | Med | Rules isolated in `classes/policy.ts`, the US-125/US-134 handlers and one badge rule in `ClassCard`; questions recorded |
 | Members of a cancelled class are not actually informed (log-only notifier) | High | Med | "Cancelled" badge on the schedule and `classStatus` in "My bookings"; channel question open |
 | Members join a waiting list but promotion (US-128) is not live yet, so nobody is ever promoted | Med | Med | Release constraint: ship US-127 and US-128 together (same feature FT-112) |
 | `BookingCancelled.cause` added after US-124 merged → compile error | Med | Low | US-126 updates the call and test in the same PR |
@@ -447,10 +449,10 @@ Format: Decision · Reason · Alternatives · Consequences. Numbering note: ADR-
 | Deadlocks between book, cancel, class cancel, waiting-list join/leave, promotion, attendance and block decisions | Low | Med | Fixed lock order `gym_class` → child rows by `member_id` → `app_user`; leave locks the class before the entry; parallel leave/join test in US-127 |
 | A slow or failing event handler blocks cancellations | Low | Med | DB-only handlers, I/O to the outbox (ADR-009) |
 | A new route is added without an access check | Med | High | Secure-by-default hook + route-table test (ADR-015); `access.ts`/`policy.ts` + access-matrix test (ADR-011) |
-| Flaky integration tests from shared DB state or time | Med | Med | Serial files, `resetDb()`, `TZ=UTC`, injected clock (schedule window, session expiry) |
+| Flaky integration tests from shared DB state or time | Med | Med | Serial files, `resetDb()`, `TZ=UTC`, injected clock (schedule window, session expiry, class start validation) |
 | Integration tests run against a real database | Low | High | `_test` name guard (ADR-017) |
 | Duplicate Stripe charges or refunds on retry | Med | High | Idempotency keys + unique `payment.idempotency_key` (US-133), `refund-{bookingId}` (US-134) |
-| Instructors forget to record attendance | Med | High | Auto no-show off by default; report shows "not recorded"; manager corrections |
+| Instructors forget to record attendance | Med | High | Auto no-show off by default; the report shows "not recorded"; manager corrections |
 | No-show threshold/window go live with provisional values | Med | Med | Pre-deploy step on US-130; configuration only |
 | Time zone assumption wrong | Low | Med | UTC storage, per-club `timezone` (US-117), DST tests (ADR-018) |
 
