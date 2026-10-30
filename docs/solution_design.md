@@ -169,26 +169,35 @@ All business routes are registered under the prefix **`/api`**. Only `/health` a
 | GitHub Actions | CI | `.github/workflows/ci.yml` | TK-119 |
 
 ## 8. Delivery pipeline and quality checks (FT-108)
-- **Workflow `CI` / job `checks`** runs on every pull request and on every push to `main`. Steps: `npm ci` → `format:check` → `lint` (0 warnings) → `typecheck` → `db:migrate` (PostgreSQL 16 service container, DB `fithub_test`) → `test` (Vitest unit + integration, coverage artifact) → `build`. Timeout: 15 min.
-- `npm run ci` runs the same chain locally.
+
+- **Workflow `CI` / job `checks`** (`.github/workflows/ci.yml`, TK-119) runs on every pull request (opened, synchronize, reopened) and on every push to `main`. Steps: `npm ci` → `format:check` → `lint` (0 warnings) → `typecheck` → `db:migrate` (PostgreSQL 16 service container, DB `fithub_test`) → `test` (Vitest unit + integration, coverage artifact) → `build`. A failing step stops the job. Timeout: 15 min (target < 5 min). `permissions: contents: read`, `pull_request` trigger only (never `pull_request_target`), `concurrency` cancels superseded runs.
+- `npm run ci` runs the same chain locally. All steps are npm scripts, so porting to another CI host is one file.
 - `main` is protected: the `CI / checks` status is required (post-deploy manual step in TK-119).
-- Test environment: `TZ=UTC`, `NODE_ENV=test`, `JOBS_ENABLED=false`. Jobs are tested by calling their run function directly. There are no real third-party calls.
-- Not yet in place: coverage gate, E2E browser tests, CD/deployment, dependency scanning. No checks are configured in the repository yet; TK-119 introduces them.
+- **Test environment:** `TZ=UTC`, `NODE_ENV=test`, `JOBS_ENABLED=false`, `DATABASE_URL=…/fithub_test`. No secrets and no `STRIPE_*` variables. Jobs are tested by calling their run function directly. There are no real third-party calls.
+- **Test layout:** `api/vitest.workspace.ts` defines projects `unit` (`test/unit/**`, no I/O) and `integration` (`test/integration/**`, serial files, real PostgreSQL). `web` uses jsdom + Testing Library.
+- **Test-DB lifecycle (ADR-014):** the integration global setup (1) refuses any database whose name does not end in `_test`, (2) migrates it to latest, before any test runs. Each integration test calls `resetDb()` in `beforeEach`. Locally the test DB `fithub_test` is created by `docker/initdb/01-create-test-db.sql` next to the dev DB `fithub`.
+- **Env loading:** Node's native `--env-file-if-exists=../.env` in the `api` scripts; no `dotenv`. CI sets env in the workflow, no `.env` file.
+- Not yet in place: coverage gate (report only), E2E browser tests, CD/deployment, dependency scanning. Before TK-119 the repository has no checks at all.
 
 ### Configuration inventory (selected)
 | Variable | Default | Story |
 |---|---|---|
+| `DATABASE_URL` | none (required); integration tests default to `postgres://fithub:fithub@localhost:5432/fithub_test` | TK-119 |
+| `PORT` | `3000` | TK-119 |
+| `NODE_ENV` | `development` (`test` in CI) | TK-119 |
+| `LOG_LEVEL` | `info` | TK-119 |
+| `TZ` | system (`UTC` in CI and Vitest) | TK-119 |
 | `BOOKING_CANCEL_CUTOFF_MINUTES` | `120` | US-124 |
 | `WAITLIST_PROMOTION_CUTOFF_MINUTES` | `0` (assumption, PO to confirm) | US-128 (read by US-127) |
 | `WAITLIST_JOB_INTERVAL_SECONDS` | `60` | US-128 |
-| `JOBS_ENABLED` | `true` (`false` in tests) | US-128 / US-133 |
+| `JOBS_ENABLED` | `true` (`false` in tests; set in CI by TK-119, parsed from US-128/US-129) | US-128 / US-133 |
 
 ## 9. Key decisions (ADR)
 
 **ADR-001 – Node.js 22 + TypeScript (strict, ESM)**
 · Reason: the repo's `.gitignore` already targets Node (`node_modules/`). One language for the SPA and the API. Stripe has a first-class Node SDK. Strict types catch status/enum mistakes in booking logic.
 · Alternatives: Python/Django (strong admin, but two languages with a React SPA), Java/Spring (heavier for a small team).
-· Consequences: all tooling is npm-based, and Node 22 LTS is pinned via `.nvmrc`.
+· Consequences: all tooling is npm-based, and Node 22 LTS is pinned via `.nvmrc` (`engines` `>=22.9 <23`).
 
 **ADR-002 – Single repo, npm workspaces `api` and `web`**
 · Reason: one PR changes the API and the UI together, there is one CI pipeline, and no extra tool (Nx/Turbo/pnpm) is needed.
@@ -213,7 +222,7 @@ All business routes are registered under the prefix **`/api`**. Only `/health` a
 **ADR-006 – Vitest, ESLint, Prettier and GitHub Actions with a Postgres service container**
 · Reason: one test runner for both workspaces. Integration tests against a real PostgreSQL prove the locking and constraint behaviour that mocks cannot. GitHub Actions is assumed because no hosting is specified (open question), and all steps are npm scripts so they are portable.
 · Alternatives: Jest (slower with ESM/TS), Testcontainers (needs Docker-in-runner; the service container is simpler), SQLite for tests (different locking semantics, so the tests would prove nothing).
-· Consequences: integration test files run serially and reset tables before each test. A guard prevents running them against non-test databases.
+· Consequences: integration test files run serially and reset tables before each test. A guard prevents running them against non-test databases (ADR-014).
 
 **ADR-007 – In-process DB-backed job polling for background work (proposed)**
 · Reason: low volume (four clubs). It avoids extra infrastructure such as Redis or a queue. The same table serves as the transactional outbox for side effects that call third parties (ADR-009).
@@ -223,7 +232,7 @@ All business routes are registered under the prefix **`/api`**. Only `/health` a
 **ADR-008 – API and schema conventions: `/api` prefix, flat error body, singular table names, text + CHECK enums**
 · Reason: the stories refined before this one (US-117, US-118, US-120) already use `/api/...` routes, `{ code, message, fieldErrors? }` errors and the tables `club`, `app_user`, `gym_class`. The Vite dev proxy forwards `/api`. `user` is a reserved word in PostgreSQL and `class` clashes with the TypeScript keyword, which explains `app_user` and `gym_class`. `text` + CHECK is simpler to extend and roll back than PostgreSQL enum types.
 · Alternatives: the nested `{ error: { code, message } }` body and plural table names from the first draft of this document (would have meant rework in three stories); PostgreSQL enums (`ALTER TYPE` cannot run inside a transaction on older versions and cannot remove values).
-· Consequences: business-rule rejections use 409 (including the cancellation window and `BOOKING_BLOCKED`, so not 422 or 403). 403 is used only for role or club scope.
+· Consequences: business-rule rejections use 409 (including the cancellation window and `BOOKING_BLOCKED`, so not 422 or 403). 403 is used only for role or club scope. Infrastructure routes (`GET /health`) stay outside `/api`.
 
 **ADR-009 – Side effects through in-transaction domain events**
 · Reason: cancelling a booking must free the place and then hand it to the waiting list (US-128), return credits (US-125) and trigger a refund (US-134). Without that, a direct booker could take the freed place between the commit and the promotion. Running the DB-only handlers inside the same transaction makes "cancel + promote + credit" atomic. Handlers that need I/O only enqueue a `job` row (outbox), so no network call happens inside a transaction.
@@ -249,6 +258,11 @@ All business routes are registered under the prefix **`/api`**. Only `/health` a
 · Reason: "no-shows that led to a block are not counted again" needs an exact record of which no-shows were used; `booking.no_show_block_id` gives that without a link table. Locking the `app_user` row inside the attendance transaction serialises decisions per member, so two parallel saves cannot both miss or both create a block. Threshold, window type (`rolling_days` \| `calendar_month`) and block length are configuration because the business values are still open.
 · Alternatives: count since the end of the latest block (loses no-shows recorded during a block and breaks on late corrections); a stored counter on `app_user` (drifts on corrections); a nightly batch (block arrives late, members can book in between).
 · Consequences: `BookingBlockService.assertNotBlocked` is called by booking (US-122) and waiting-list join (US-127) with 409 `BOOKING_BLOCKED`. Correcting a linked no-show can lift an active block (assumed). Changing configuration affects only future decisions.
+
+**ADR-014 – Test databases guard and migrate themselves; env files loaded by Node natively**
+· Reason: locally `DATABASE_URL` in `.env` points to the dev DB `fithub`, so a manual `db:migrate` would not prepare `fithub_test`; tests would fail on a clean clone or, worse, could hit the dev DB. A Vitest `globalSetup` that first enforces the `_test` name guard and then runs `migrateToLatest()` makes the integration suite self-contained, identical in CI and locally. Node 22's `--env-file-if-exists` covers `.env` loading without a dependency, and CI simply has no `.env`.
+· Alternatives: a separate `db:migrate:test` script the developer must remember (easy to forget, stale schema); `dotenv` (extra dependency for a built-in feature); Testcontainers per run (slower, needs Docker in the runner).
+· Consequences: Node ≥ 22.9 is required. The CI `db:migrate` step still runs on its own so a broken migration is reported as a migration failure, not as a test failure. Migrations must be re-runnable against an already migrated DB (Kysely tracks them in `kysely_migration`).
 
 ## 10. Risks
 
@@ -353,3 +367,7 @@ Booking error codes (FT-111, FT-113):
 `BookingDto` (shared by US-122 to US-124): `id, type: "booking", memberId, classId, className, clubId, clubName, startAt, durationMinutes, classStatus, status, attendance, source, bookedAt, cancelledAt, cancelDeadline, canCancel`. Staff viewers also get `memberName`. US-127 adds items with `type: "waitlist"` to `GET /api/me/bookings`.
 
 Domain events (ADR-009): `BookingCancelled` (US-124 → waitlist US-128, credits US-125, refunds US-134); `AttendanceRecorded { bookingId, memberId, classId, classStartAt, previousAttendance, attendance, recordedBy|null, recordedAt }` (US-129 → no-show block US-130).
+
+## Error envelope
+
+Flat body (ADR-008): `{ "code": "<UPPER_SNAKE>", "message": "<plain language>", "fieldErrors"?: [{ "field", "message" }] }`. `fieldErrors` appears only with `VALIDATION_ERROR`. Status codes: 400 validation, 401 unauthenticated, 403 role or club scope only, 404 not found (also non-owned resources, ADR-011), 409 business conflict (including the cancellation window and `BOOKING_BLOCKED`), 503 dependency unavailable. `DomainError` and the Fastify error handler live in `api/src/shared/errors.ts` (US-118). The TK-119 skeleton has no error handler yet; `GET /health` returns its own fixed body.
