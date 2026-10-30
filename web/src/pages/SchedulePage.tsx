@@ -10,6 +10,7 @@ import { clubDateKey, formatClubDay } from '../lib/time';
 type LoadState =
   | { status: 'loading' }
   | { status: 'error' }
+  | { status: 'no-clubs' }
   | { status: 'ready'; clubs: Club[]; items: ScheduleItem[] };
 
 interface DayGroup {
@@ -74,7 +75,9 @@ export function SchedulePage() {
     let active = true;
     listClubs()
       .then((list) => {
-        if (active) setClubs(list);
+        if (!active) return;
+        setClubs(list);
+        if (list.length === 0) setState({ status: 'no-clubs' });
       })
       .catch((error: unknown) => {
         if (active) handleFailure(error);
@@ -122,7 +125,7 @@ export function SchedulePage() {
       <select
         id="club-select"
         value={clubId ?? ''}
-        disabled={clubs === null}
+        disabled={clubs === null || clubs.length === 0}
         onChange={(event) => changeClub(event.target.value)}
       >
         {(clubs ?? []).map((club) => (
@@ -134,6 +137,8 @@ export function SchedulePage() {
 
       <div aria-busy={state.status === 'loading'}>
         {state.status === 'loading' && <p>Loading schedule…</p>}
+
+        {state.status === 'no-clubs' && <p>There are no clubs to show a schedule for yet.</p>}
 
         {state.status === 'error' && (
           <div role="alert">

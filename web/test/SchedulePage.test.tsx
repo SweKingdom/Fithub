@@ -74,6 +74,15 @@ describe('SchedulePage', () => {
     await waitFor(() => expect(mocks.getSchedule).toHaveBeenCalled());
   });
 
+  it('AC 11: shows a clear message, not the loading text, when there are no clubs', async () => {
+    mocks.listClubs.mockResolvedValue([]);
+    renderPage();
+    expect(await screen.findByText('There are no clubs to show a schedule for yet.')).toBeTruthy();
+    expect(screen.queryByText('Loading schedule…')).toBeNull();
+    expect((screen.getByLabelText('Club') as HTMLSelectElement).disabled).toBe(true);
+    expect(mocks.getSchedule).not.toHaveBeenCalled();
+  });
+
   it('AC 11: preselects the club from ?clubId', async () => {
     renderPage(`/schedule?clubId=${CLUBS[1].id}`);
     await waitFor(() => expect(mocks.getSchedule).toHaveBeenCalledWith({ clubId: CLUBS[1].id }));
