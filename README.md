@@ -6,6 +6,12 @@ Gym class booking for four clubs: a React SPA (`web/`) on a Fastify JSON API (`a
 
 Settings are read from environment variables (`.env` locally, see `.env.example`) and validated at startup in `api/src/config.ts`. An invalid setting stops the API with `Invalid configuration: <VARIABLE>: <reason>`. The message names the variable and never its value.
 
+### Bookings
+
+| Variable | Description | Default |
+|---|---|---|
+| `BOOKING_CANCEL_CUTOFF_MINUTES` | Members can cancel a booking until this many minutes before the class starts (exactly at the cut-off is still allowed). Integer 0–1440. Messages show the value, e.g. "2 hours" or "90 minutes" | `120` |
+
 ### Payments (Stripe)
 
 Payments are off unless `PAYMENTS_ENABLED=true`. When they are off, all other variables in this table are ignored and the startup log says `payments.enabled=false`. When they are on, the log says `payments.enabled=true mode=test` (or `live`), never a key.

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation for the payment (Stripe) settings (TK-131, ADR-022).
+ * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022) and the
+ * booking cancellation cut-off (US-124).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -31,6 +32,8 @@ export type PaymentsConfig =
 
 export interface AppConfig {
   payments: PaymentsConfig;
+  /** Members may cancel a booking until this many minutes before the class starts. */
+  bookingCancelCutoffMinutes: number;
 }
 
 export class ConfigError extends Error {
@@ -47,9 +50,11 @@ const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
 const INTEGER_PATTERN = /^\d+$/;
 
 const DEFAULT_STRIPE_TIMEOUT_MS = 10000;
+const DEFAULT_BOOKING_CANCEL_CUTOFF_MINUTES = 120;
+const MAX_BOOKING_CANCEL_CUTOFF_MINUTES = 1440;
 const REQUIRED_WHEN_ENABLED = 'required when PAYMENTS_ENABLED=true';
 
-const PAYMENT_VARIABLES = [
+const ENV_VARIABLES = [
   'PAYMENTS_ENABLED',
   'STRIPE_SECRET_KEY',
   'STRIPE_PUBLISHABLE_KEY',
@@ -58,6 +63,7 @@ const PAYMENT_VARIABLES = [
   'STRIPE_TIMEOUT_MS',
   'DROP_IN_PRICE_AMOUNT',
   'DROP_IN_CURRENCY',
+  'BOOKING_CANCEL_CUTOFF_MINUTES',
 ] as const;
 
 const envSchema = z
@@ -70,11 +76,25 @@ const envSchema = z
     STRIPE_TIMEOUT_MS: z.string().optional(),
     DROP_IN_PRICE_AMOUNT: z.string().optional(),
     DROP_IN_CURRENCY: z.string().optional(),
+    BOOKING_CANCEL_CUTOFF_MINUTES: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const fail = (variable: string, message: string): void => {
       ctx.addIssue({ code: 'custom', path: [variable], message });
     };
+
+    // Always checked, independent of the payments switch.
+    if (env.BOOKING_CANCEL_CUTOFF_MINUTES !== undefined) {
+      const cutoff = INTEGER_PATTERN.test(env.BOOKING_CANCEL_CUTOFF_MINUTES)
+        ? Number(env.BOOKING_CANCEL_CUTOFF_MINUTES)
+        : NaN;
+      if (!Number.isSafeInteger(cutoff) || cutoff > MAX_BOOKING_CANCEL_CUTOFF_MINUTES) {
+        fail(
+          'BOOKING_CANCEL_CUTOFF_MINUTES',
+          `must be an integer between 0 and ${MAX_BOOKING_CANCEL_CUTOFF_MINUTES}`,
+        );
+      }
+    }
 
     const paymentsEnabled = parseBoolean(env.PAYMENTS_ENABLED);
     if (paymentsEnabled === 'invalid') fail('PAYMENTS_ENABLED', 'must be true or false');
@@ -137,7 +157,7 @@ const envSchema = z
     }
   });
 
-type PaymentEnv = z.infer<typeof envSchema>;
+type ParsedEnv = z.infer<typeof envSchema>;
 
 function parseBoolean(value: string | undefined): boolean | 'invalid' {
   if (value === undefined || value === 'false') return false;
@@ -150,9 +170,9 @@ function modeOf(key: string): StripeMode {
 }
 
 /** Blank values (e.g. `STRIPE_SECRET_KEY=` in a .env file) count as not set. */
-function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
+function pickEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
   const picked: Record<string, string | undefined> = {};
-  for (const name of PAYMENT_VARIABLES) {
+  for (const name of ENV_VARIABLES) {
     const value = env[name];
     picked[name] = value === undefined || value.trim() === '' ? undefined : value.trim();
   }
@@ -160,7 +180,7 @@ function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefin
 }
 
 /** Builds the typed config from an already validated environment. */
-function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
+function toPaymentsConfig(env: ParsedEnv): PaymentsConfig {
   if (env.PAYMENTS_ENABLED !== 'true') {
     return {
       enabled: false,
@@ -189,12 +209,18 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
 
 /** Parses and validates the environment. Throws `ConfigError` listing every problem. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const result = envSchema.safeParse(pickPaymentEnv(env));
+  const result = envSchema.safeParse(pickEnv(env));
   if (!result.success) {
     const problems = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data) };
+  return {
+    payments: toPaymentsConfig(result.data),
+    bookingCancelCutoffMinutes:
+      result.data.BOOKING_CANCEL_CUTOFF_MINUTES === undefined
+        ? DEFAULT_BOOKING_CANCEL_CUTOFF_MINUTES
+        : Number(result.data.BOOKING_CANCEL_CUTOFF_MINUTES),
+  };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */
