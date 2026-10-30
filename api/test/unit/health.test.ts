@@ -25,7 +25,7 @@ function createStubDb(acquire: () => Promise<DatabaseConnection>): Kysely<Databa
     dialect: {
       createAdapter: () => new PostgresAdapter(),
       createDriver: () => driver,
-      createIntrospector: (db) => new PostgresIntrospector(db),
+      createIntrospector: (db: Kysely<Database>) => new PostgresIntrospector(db),
       createQueryCompiler: () => new PostgresQueryCompiler(),
     },
   });

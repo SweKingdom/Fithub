@@ -31,8 +31,12 @@ export function getTestDb(): Kysely<Database> {
   return testDb;
 }
 
+interface TableRow {
+  tablename: string;
+}
+
 export async function resetDb(db: Kysely<Database>): Promise<void> {
-  const { rows } = await sql<{ tablename: string }>`
+  const { rows } = await sql<TableRow>`
     select tablename from pg_tables
     where schemaname = 'public'
       and tablename not in ('kysely_migration', 'kysely_migration_lock')
@@ -40,6 +44,6 @@ export async function resetDb(db: Kysely<Database>): Promise<void> {
   if (rows.length === 0) {
     return;
   }
-  const tables = sql.join(rows.map((row) => sql.id(row.tablename)));
+  const tables = sql.join(rows.map((row: TableRow) => sql.id(row.tablename)));
   await sql`truncate table ${tables} restart identity cascade`.execute(db);
 }
