@@ -283,36 +283,15 @@ Flat body: `{ "code": "<UPPER_SNAKE>", "message": "<plain language>", "fieldErro
 
 ## 8. Delivery pipeline and quality checks (FT-108)
 
-- **Workflow `CI` / job `checks`** (TK-119) runs on every pull request and on every push to `main`: `npm ci` → `format:check` → `lint` (0 warnings) → `typecheck` → `db:migrate` (PostgreSQL 16 service, DB `fithub_test`) → `test` (unit + integration, coverage artifact) → `build`. Timeout 15 min (target < 5 min). `concurrency` cancels superseded runs.
+- **Workflow `CI` / job `checks`** (TK-119) runs on every pull request and on every push to `main`: `npm ci` → `format:check` → `lint` (0 warnings) → `typecheck` → `db:migrate` (PostgreSQL 16 service, DB `fithub_test`) → `test` (unit + integration, coverage artifact) → `build`. Timeout 15 min (target < 5 min). `concurrency` cancels superseded runs. Permissions: `contents: read`; trigger `pull_request` only (never `pull_request_target`).
 - `npm run ci` runs the same chain locally.
 - `main` is protected: `CI / checks` required (post-deploy step in TK-119).
-- **Test environment:** `TZ=UTC`, `NODE_ENV=test`, `JOBS_ENABLED=false`, `AUTH_SCRYPT_COST=16384`, `DATABASE_URL=…/fithub_test`; no secrets, no `STRIPE_*`. Jobs are tested by calling their run function directly.
+- **Test environment:** TK-119 sets `TZ=UTC`, `NODE_ENV=test`, `JOBS_ENABLED=false`, `DATABASE_URL=…/fithub_test`; no secrets, no `STRIPE_*`. Later stories add their own non-secret test variables to the workflow `env` (e.g. `AUTH_SCRYPT_COST=16384` with US-118). Jobs are tested by calling their run function directly.
 - **Test layout:** `api/vitest.workspace.ts` projects `unit` (`test/unit/**`) and `integration` (`test/integration/**`, serial, real PostgreSQL). `web` uses jsdom + Testing Library.
-- **Test-DB lifecycle (ADR-017):** global setup enforces the `_test` name guard, then migrates to latest; `resetDb()` before each integration test.
+- **Test-DB lifecycle (ADR-017):** `api/test/helpers/integration-global-setup.ts` enforces the `_test` name guard (`assertTestDatabase`), then migrates to latest via the shared `createMigrator`; `resetDb()` before each integration test.
+- **Skeleton:** npm workspaces `api` (Fastify 5, Kysely, zod) and `web` (React + Vite); `GET /health` (public, outside `/api`) returns `200 {status:ok,db:ok}` or `503 {status:error,db:unreachable}` with no error detail.
 - **Env loading:** Node's `--env-file-if-exists=../.env`; no `dotenv`.
 - Not yet in place: coverage gate, E2E browser tests, CD, dependency scanning. **Until TK-119 is merged the repository has no checks at all** (today it contains only `docs/` and `.gitignore`).
-
-### Configuration inventory (selected)
-| Variable | Default | Story |
-|---|---|---|
-| `DATABASE_URL` | none (required); integration tests default to `postgres://fithub:fithub@localhost:5432/fithub_test` | TK-119 |
-| `PORT` | `3000` | TK-119 |
-| `NODE_ENV` | `development` (`test` in CI) | TK-119 |
-| `LOG_LEVEL` | `info` | TK-119 |
-| `TZ` | system (`UTC` in CI and Vitest) | TK-119 |
-| `APP_ORIGIN` | `http://localhost:5173` (required in production) | US-118 |
-| `SESSION_COOKIE_SECURE` | `true` in production, else `false` | US-118 |
-| `SESSION_IDLE_TIMEOUT_MINUTES` / `SESSION_MAX_AGE_HOURS` | `720` / `168` | US-118 |
-| `AUTH_SCRYPT_COST` | `131072` (`16384` in tests) | US-118 |
-| `LOGIN_RATE_LIMIT_MAX` / `LOGIN_RATE_LIMIT_WINDOW_MINUTES` | `10` / `15` | US-118 |
-| `TRUST_PROXY` | `false` | US-118 |
-| `BOOKING_CANCEL_CUTOFF_MINUTES` | `120` | US-124 |
-| `WAITLIST_PROMOTION_CUTOFF_MINUTES` | `0` (assumption) | US-128 (read by US-127 for `WAITLIST_CLOSED`) |
-| `WAITLIST_JOB_INTERVAL_SECONDS` | `60` | US-128 |
-| `JOBS_ENABLED` | `true` (`false` in tests) | US-128 / US-133 |
-| `ATTENDANCE_*`, `NO_SHOW_*` | see US-129 / US-130 | US-129, US-130 |
-
-FT-109 (US-120, US-126), FT-110 (US-121) and US-127 add no configuration. The 14-day schedule window is a code constant (`SCHEDULE_WINDOW_DAYS`), because it is a business rule rather than an environment setting.
 
 ## 9. Key decisions (ADR)
 
