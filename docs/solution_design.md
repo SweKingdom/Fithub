@@ -272,13 +272,14 @@ Flat body: `{ "code": "<UPPER_SNAKE>", "message": "<plain language>", "fieldErro
 - Integration tests refuse to run against any database whose name does not end in `_test` (ADR-017).
 
 ## 7. Integration inventory
+
 | System | Direction | Mechanism | Status |
 |---|---|---|---|
-| Stripe Payments API | outbound | PaymentIntents via official `stripe` SDK, idempotency keys per attempt; refunds `refund-{bookingId}` (US-134) | EP-104, open questions (price, retry policy, refunds) |
-| Stripe webhooks | inbound | `POST /webhooks/stripe`, signature verification | EP-104 |
+| Stripe Payments API | outbound | PaymentIntents (`booking-{bookingId}`), cancel intent, refunds (`refund-{bookingId}`) via the official `stripe` SDK behind `PaymentGateway`; 10 s timeout, SDK retries off, own retry via `payment` table (FT-114 section) | EP-104 refined; open questions: price, retry policy, refunds (defaults configured) |
+| Stripe webhooks | inbound | `POST /webhooks/stripe`, signature on raw body, events `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`, dedupe in `stripe_event` | EP-104 |
 | Legacy member data | inbound, one-off | CLI import script, idempotent upsert by dedup key | EP-105, format and dedup key open |
 | Club master data | inbound, operator | `api/seed/clubs.json` + `npm run db:seed:clubs` (idempotent on `code`, never deletes) | US-117, values open |
-| Email/notifications | outbound | `Notifier` port, `LogNotifier` until a channel is decided. Events: `waitlist_promoted` (US-128), `class_cancelled` (US-126) | channel open question |
+| Email/notifications | outbound | `Notifier` port, `LogNotifier` until a channel is decided. Events: `waitlist_promoted` (US-128), `class_cancelled` (US-126), `payment_ready`, `payment_expired` (US-133) | channel open question |
 | GitHub Actions | CI | `.github/workflows/ci.yml` | TK-119 |
 
 ## 8. Delivery pipeline and quality checks (FT-108)
@@ -499,3 +500,44 @@ Re-checked US-123 and US-124 against §3–§5, ADR-008/009/010/011/016: specs a
 **ADR-US137-2 · Week navigation via buttons, not `<input type="week">` · Reason: unsupported in Firefox/Safari · Alternative: native picker.**
 
 **Risks.** (1) Report accuracy depends on attendance being recorded (US-129): unrecorded classes show as "not recorded" — low likelihood after the auto no-show sweep, medium impact. (2) DST/ISO-week edge cases — mitigated by unit tests across DST changes and year boundaries. (3) Open requirements (week definition, e-mail delivery, chain view) — assumptions recorded in US-137; e-mail delivery would need the job runner (US-133) and the `Notifier` port.
+
+## FT-114 Drop-in payments (TK-131, US-132, US-133, US-134) – refinement notes
+
+Authoritative for Stripe payments. **Supersedes** the `payment` and `job` rows of §4 and the `/api/payments/stripe/webhook` path used in the first US-132 draft. Story specs hold the field-level detail.
+
+**Module `api/src/modules/payments/`** (new): `gateway.ts` (`PaymentGateway` port, `GatewayError kind: unavailable | declined | rejected`), `stripe-gateway.ts` (official `stripe` SDK, pinned `apiVersion`, `timeout = STRIPE_TIMEOUT_MS`, `maxNetworkRetries: 0`), `service.ts`, `repository.ts`, `webhook.ts`, `routes.ts`, `dto.ts`, `errors.ts` (US-132); `retry-policy.ts`, `maintenance.ts`, `handlers.ts` (US-133); `refunds.ts` (US-134). Tests inject `FakeGateway` through `buildApp({ paymentGateway })`; CI never calls Stripe. Web: `PayBookingPage` (`/bookings/:id/pay`), `PaymentForm` (Stripe Payment Element), `@stripe/stripe-js`, `@stripe/react-stripe-js`.
+
+**Data model.** `payment` (one per booking, unique `booking_id`, unique `idempotency_key = booking-{bookingId}`, unique intent id and refund id): `status` `pending_retry|requires_payment|succeeded|failed|expired|refunded`; `attempt_count`, `next_retry_at`, `last_error`, `succeeded_at`, `intent_cancelled_at`; refund columns `refund_status` `none|pending|succeeded|failed`, `refund_reason` `member_cancelled|class_cancelled|late_payment|manual`, `stripe_refund_id`, `refund_attempt_count`, `refund_next_retry_at`, `refunded_at`. (The column is `attempt_count`, not `attempts` as in §4.) `stripe_event(event_id PK, type, received_at)` deduplicates webhooks. One migration (US-132). No `job` table is created by FT-114 (see ADR-023). `BookingDto` gains `paymentStatus` and `refundStatus`.
+
+**API inventory.**
+| Route | Who | Notes |
+|---|---|---|
+| `POST /api/classes/:classId/bookings` | member | drop-in → `202 { ...BookingDto, payment }`; `409 PAYMENTS_UNAVAILABLE` when payments are off |
+| `GET /api/bookings/:bookingId/payment` | member, owner | `PaymentDto` without secret; no payment row → `404 PAYMENT_NOT_FOUND` (US-132's table cell text on this row is garbled: this is the rule) |
+| `POST /api/bookings/:bookingId/payment` | member, owner, 10/min | resume: returns `clientSecret` (retrieved from Stripe, never stored); first attempt for waitlist-promoted bookings; `409 BOOKING_NOT_PAYABLE` |
+| `POST /webhooks/stripe` | Stripe signature | outside `/api` (ADR-008); raw body; `400 INVALID_SIGNATURE`; dedupe via `stripe_event`; events `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated` |
+
+**Flows.**
+- *Book (drop-in):* transaction (class lock → booking `pending_payment` + `payment` `pending_retry`) → commit → `startPayment` calls Stripe **outside** the transaction → `requires_payment` (or `pending_retry` with backoff on an outage).
+- *Pay:* browser confirms with Stripe → webhook `succeeded` → booking `confirmed`. Decline → payment `failed`, booking `cancelled`, `promoteNext`.
+- *Hold:* `pending_payment` lasts `PAYMENT_HOLD_MINUTES` (30) from `booked_at`, never past class start. Expiry (hold, last failed attempt, class start) → booking `cancelled`, payment `expired`, `promoteNext`, notification `payment_expired`.
+- *Cancel with payment:* `BookingCancelled` subscriber (in-transaction, DB only): unpaid → payment `expired` (job cancels the intent in Stripe); paid → `refund_status = 'pending'`. The job sends the refund after commit (`refund-{bookingId}`), retried with capped backoff, finalised by webhook.
+- *Late payment* on a cancelled booking → payment `succeeded` + automatic refund (`late_payment`).
+- *Background work:* job `payment-maintenance` (every `PAYMENT_JOB_INTERVAL_SECONDS`, 30): expire holds → retry create-intent → cancel dead intents → refunds. Work is claimed with a short lease (`UPDATE … SET <due_at> = now + 60 s … FOR UPDATE SKIP LOCKED RETURNING`), so no row lock is held during a Stripe call and several instances are safe.
+
+**Lock order** (extends ADR-010/013): `gym_class` → `booking` → `payment` → `app_user`.
+
+**Configuration** (TK-131 plus later stories): `PAYMENTS_ENABLED`, `STRIPE_*`, `DROP_IN_PRICE_AMOUNT`, `DROP_IN_CURRENCY`, `STRIPE_TIMEOUT_MS` (TK-131); `PAYMENT_HOLD_MINUTES` 30 (US-132/133); `PAYMENT_RETRY_BASE_SECONDS` 60, `PAYMENT_RETRY_MAX_ATTEMPTS` 5, `PAYMENT_JOB_INTERVAL_SECONDS` 30 (US-133); `PAYMENT_REFUND_RETRY_CAP_SECONDS` 3600 (US-134); `JOBS_ENABLED` shared with US-128. All defaults are assumptions pending the PO.
+
+**Delivery order and release constraints.** US-132 → US-133 → US-134. TK-131's code part goes first. `PAYMENTS_ENABLED=false` until all three are deployed; with payments off drop-in booking is rejected, and `promoteNext` skips drop-in candidates. US-126 must not be released with paid bookings before US-134.
+
+**Decisions.**
+- **ADR-022 – Payments behind `PAYMENTS_ENABLED` and a live-mode guard** (named in TK-131) · Reason: no place may be held without a way to pay; a copied live key must not charge real cards in test · Alternatives: always on, per-environment code branches · Consequences: startup validation, drop-in booking rejected when off.
+- **ADR-023 – The `payment` table is the work queue; no `job` table for FT-114 (confirms ADR-007 with a change)** · Reason: three kinds of work, each already has its own due column and partial index; one table avoids a second source of truth · Alternatives: generic `job` outbox, BullMQ/Redis · Consequences: ADR-009's "enqueue" is a status change in the in-transaction handler; a generic `job` table is only built if another story needs it.
+- **ADR-024 – Stripe calls never run inside a transaction holding the class lock; idempotency keys make every call repeatable** · Reason: a 10 s Stripe timeout must not block bookings for a class · Alternatives: create the intent inside the booking transaction · Consequences: a short "payment row exists, intent not yet created" state (`pending_retry`), recovered by the job; keys `booking-{bookingId}` and `refund-{bookingId}`; refund retries first look up existing refunds because Stripe forgets keys after 24 h.
+- **ADR-025 – Refunds are requested by the job after commit; `BookingCancelled` only marks them pending** · Reason: cancellation must not depend on Stripe; a refund must never be lost · Alternatives: refund inside the handler (I/O in a transaction), best effort without retry · Consequences: refund state machine on `payment`; failures visible as `refund_status = 'failed'` + error log.
+- **ADR-026 – Webhook verified by signature on the raw body, deduplicated by event id, processed in one transaction** · Reason: Stripe delivers at least once and out of order · Alternatives: trusting the redirect/client result; polling Stripe · Consequences: dedicated raw-body content-type parser in the webhook plugin, unknown events/payments get `200` plus a warn log, state transitions are idempotent and ignore out-of-order events.
+
+**Assumptions to confirm with the PO** (all configurable or isolated in code): fixed price per class and club; hold 30 min and retry 1/2/4/8 min with 5 attempts; a decline is final (member rebooks); full refund on in-time cancel and class cancel; promoted drop-in members pay like direct bookings; notification channel (log only for now); Stripe receipt e-mails.
+
+**Risks.** (also in §10) Duplicate charge or refund; webhook before DB commit (not possible: the intent id is stored before the member gets the secret; fallback lookup by `metadata.paymentId`); `BookingCancelled` consumers added later (US-125) must ignore drop-in bookings without a paid payment; Stripe API version drift (pinned in `stripe-gateway.ts` and the endpoint setting); a member pays exactly as the hold expires (handled by late-payment refund, may surprise the member).
