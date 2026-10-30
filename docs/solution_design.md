@@ -449,3 +449,14 @@ Format: Decision · Reason · Alternatives · Consequences. Numbering note: ADR-
 - Attendance capture details (US-129); no-show threshold and window (US-130).
 - Waiting list (US-127/US-128): maximum length (assumed none), promotion cut-off (default 0), drop-in promotion as `pending_payment`, notification channel.
 - **Class cancellation (US-126):** may instructors cancel any class of their club or only those they lead (built: only those they lead)? Full credit return/refund without penalty? Cancellation until start only? Final (no reinstating)?
+
+## FT-111 Booking and cancellation (US-123, US-124) – refinement notes
+
+Re-checked US-123 and US-124 against §3–§5, ADR-008/009/010/011/016: specs are consistent with the API inventory and internal contracts; no contract changes.
+
+- **Access (US-123):** `bookings/access.ts` is the single place deciding booking access. Ownership (`member_id`) or club (`club_id`) is always in the SQL `WHERE`; foreign and unknown ids return identical `404 BOOKING_NOT_FOUND`. Staff are read-only on bookings. `GET /api/classes/:classId/bookings` returns names, no e-mail.
+- **Cancel (US-124):** `POST /api/bookings/:id/cancel`, member only. One transaction; lock order `gym_class` → `booking` (ADR-010); check order: not found 404 → already cancelled 409 → class cancelled 409 → window closed 409. Window `now <= start − BOOKING_CANCEL_CUTOFF_MINUTES` (default 120, 0–1440, startup validation). `BookingCancelled` is published inside the transaction (`cause: 'member_cancelled'`); a handler error rolls back the cancel.
+- **New shared module:** `api/src/shared/domain-events.ts` (event bus, injected via `buildApp({ events })`). No production handler until US-125.
+- **Merge-order note:** the `promoteNext` call (US-128) is added to `cancelBooking` by whichever story merges second.
+- **Risk (low):** `getOwnBookingForUpdate` is used as an unlocked pre-read in US-124 despite its name; the row is re-read under lock. Developers must not skip the re-read.
+- **Checks:** none configured until TK-119; tests run via `npm test -w api` / `-w web`.
