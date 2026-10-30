@@ -460,3 +460,26 @@ Re-checked US-123 and US-124 against §3–§5, ADR-008/009/010/011/016: specs a
 - **Merge-order note:** the `promoteNext` call (US-128) is added to `cancelBooking` by whichever story merges second.
 - **Risk (low):** `getOwnBookingForUpdate` is used as an unlocked pre-read in US-124 despite its name; the row is re-read under lock. Developers must not skip the re-read.
 - **Checks:** none configured until TK-119; tests run via `npm test -w api` / `-w web`.
+
+## FT-115 Member and class credit import (US-135, US-136) – refinement notes
+
+**Shape:** two operator-only CLIs (`import:members`, `import:credits`) on one shared module `api/src/modules/imports/` (csv, normalize, errors, report, repository). No HTTP route, no UI. Pure `parse` and `plan` functions; apply runs in one transaction; dry run runs plan only.
+
+**Data model:** new table `import_member_alias (legacy_member_id PK, user_id FK, created_at)` (US-135) so merged legacy numbers still resolve. US-136 adds no tables: it writes `credit_balance` and `credit_transaction` (`reason = 'migration'`) created by US-125. Build order: US-125 migration, US-135, US-136.
+
+**Idempotency / concurrency:** members matched by lower(email) or alias; credits by `credit_transaction_migration_uq (member_id) WHERE reason='migration'`. Both CLIs take `pg_advisory_xact_lock(735136)`, so imports never run in parallel.
+
+**Reconciliation:** every source row has one outcome; counts must add up (members: inserted+updated+unchanged+merged+rejected; credits also sum of credit values) or the run rolls back and exits 1.
+
+**Decisions**
+- ADR-022 (members, from US-135): canonical CSV contract; operator converts the real FitHub export beforehand. Reason: the source format is unknown. Alternative: parsing the raw spreadsheets.
+- ADR-023: credit import never updates an existing migrated total. A different total is rejected `ALREADY_MIGRATED_DIFFERENT_TOTAL`. Reason: the ledger is append-only. Alternative: delta rows for corrections (rejected: needs a new reason).
+- ADR-024: credits of merged/duplicate rows are summed; drop-in/staff rows are rejected. Both are PO-to-confirm assumptions.
+
+**Risks**
+- Dedup key (email) and type mapping not yet confirmed. Medium likelihood, high impact; the key and mapping are isolated in one plan function and a data file.
+- Imported members have no password (onboarding open question, US-118). They cannot sign in until resolved.
+- Summing duplicate credit rows may double-count an accidental duplicate. Mitigation: merges report reviewed in the dry run.
+- Credit expiry dates in the source are ignored.
+- Personal data in import files and reports. Mitigation: git-ignored dirs, deletion after sign-off.
+- Credits must be imported before members get access (US-125).
