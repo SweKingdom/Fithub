@@ -1,17 +1,18 @@
-# US-132 — Test report (iteration 2)
+# US-132 — Test report (iteration 3)
 **Verdict:** ❌ Changes requested · **Tester:** Cuélebre · **Date:** 2026-10-31
 
 ## Summary
 | Check | Result | Evidence |
 |---|---|---|
-| AC 1–3, 5–11 | ❌ | Not delivered; branch unchanged since iteration 1 |
-| AC 4 | ❌ | Only gateway-level signature check; no webhook endpoint |
-| Checks gate | ⛔ | No checks configured, no package.json |
+| AC 1–3, 5–11 | ❌ | Not implemented. The branch is unchanged since iteration 1. |
+| AC 4 | ❌ | Only gateway-level signature verification exists. There is no webhook route. |
+| Checks gate | ⛔ | `run_checks`: "No checks configured". The unit tests were not run. |
 
 ## What to do
-- AC 1–3, 5–11: implement the payments repository, service, webhook and routes. Also the bookClass drop-in branch, BookingDto.paymentStatus, the promotion skip, app.ts wiring, the `stripe` dependency, FakeGateway, integration tests and the web pay page.
-- AC 4: implement `POST /webhooks/stripe` returning 400 INVALID_SIGNATURE with tables unchanged, plus tests.
-- Process: the story is Blocked on TK-119, US-118, US-122, US-123 and US-128. Rebase after they land, then re-submit via `complete_development` with a passing `run_checks`.
+- AC 1–3 and 5–11: implement the payments repository, service, webhook and routes. Also implement the bookClass drop-in branch, BookingDto.paymentStatus, the promotion skip, app.ts wiring, the `stripe` dependency, FakeGateway, the integration tests and the web pay page.
+- AC 4: add `POST /webhooks/stripe`. It must return 400 INVALID_SIGNATURE and leave `payment`, `booking` and `stripe_event` unchanged. Add tests.
+- Prerequisites TK-119, US-118, US-122, US-123 and US-128 must land on the branch (rebase). Then re-submit.
+- Configure project checks so `run_checks` can pass.
 
 ## Not tested
-- Checks gate: no checks configured, so the unit tests (config, payment-dto, stripe-gateway) are unrun and the pinned `STRIPE_API_VERSION` is unverified.
+- Checks gate: no checks are configured. The unit tests and the pinned `STRIPE_API_VERSION` are unverified.
