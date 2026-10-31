@@ -20,6 +20,7 @@ Payments are off unless `PAYMENTS_ENABLED=true`. When they are off, all other va
 | `STRIPE_TIMEOUT_MS` | Per-request timeout for Stripe calls, integer 1000–30000 | `10000` | — |
 | `DROP_IN_PRICE_AMOUNT` | Drop-in price in minor units (e.g. cents), integer 1–99999999. Same price for every class and club. Value from the PO | none | `PAYMENTS_ENABLED=true` |
 | `DROP_IN_CURRENCY` | ISO 4217 code, 3 letters, normalised to lower case. Value from the PO | none | `PAYMENTS_ENABLED=true` |
+| `PAYMENT_REFUND_RETRY_CAP_SECONDS` | Longest wait between two attempts to send a refund to Stripe (US-134), integer 60–86400. The wait doubles from `PAYMENT_RETRY_BASE_SECONDS` up to this cap | `3600` | — |
 
 Rules:
 

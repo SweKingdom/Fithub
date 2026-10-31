@@ -17,6 +17,7 @@ export type PaymentsConfig =
       stripeTimeoutMs: null;
       dropInPriceAmount: null;
       dropInCurrency: null;
+      refundRetryCapSeconds: null;
     }
   | {
       enabled: true;
@@ -27,6 +28,7 @@ export type PaymentsConfig =
       stripeTimeoutMs: number;
       dropInPriceAmount: number;
       dropInCurrency: string;
+      refundRetryCapSeconds: number;
     };
 
 export interface AppConfig {
@@ -47,6 +49,7 @@ const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
 const INTEGER_PATTERN = /^\d+$/;
 
 const DEFAULT_STRIPE_TIMEOUT_MS = 10000;
+const DEFAULT_REFUND_RETRY_CAP_SECONDS = 3600;
 const REQUIRED_WHEN_ENABLED = 'required when PAYMENTS_ENABLED=true';
 
 const PAYMENT_VARIABLES = [
@@ -58,6 +61,7 @@ const PAYMENT_VARIABLES = [
   'STRIPE_TIMEOUT_MS',
   'DROP_IN_PRICE_AMOUNT',
   'DROP_IN_CURRENCY',
+  'PAYMENT_REFUND_RETRY_CAP_SECONDS',
 ] as const;
 
 const envSchema = z
@@ -70,6 +74,7 @@ const envSchema = z
     STRIPE_TIMEOUT_MS: z.string().optional(),
     DROP_IN_PRICE_AMOUNT: z.string().optional(),
     DROP_IN_CURRENCY: z.string().optional(),
+    PAYMENT_REFUND_RETRY_CAP_SECONDS: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const fail = (variable: string, message: string): void => {
@@ -125,6 +130,7 @@ const envSchema = z
     checkFormat('DROP_IN_CURRENCY', env.DROP_IN_CURRENCY, CURRENCY_PATTERN);
     checkInteger('DROP_IN_PRICE_AMOUNT', env.DROP_IN_PRICE_AMOUNT, 1, 99999999, false);
     checkInteger('STRIPE_TIMEOUT_MS', env.STRIPE_TIMEOUT_MS, 1000, 30000, true);
+    checkInteger('PAYMENT_REFUND_RETRY_CAP_SECONDS', env.PAYMENT_REFUND_RETRY_CAP_SECONDS, 60, 86400, true);
 
     // Rule 4: both keys must come from the same Stripe mode.
     if (secretKey && publishableKey && modeOf(secretKey) !== modeOf(publishableKey)) {
@@ -171,6 +177,7 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
       stripeTimeoutMs: null,
       dropInPriceAmount: null,
       dropInCurrency: null,
+      refundRetryCapSeconds: null,
     };
   }
   const secretKey = env.STRIPE_SECRET_KEY as string;
@@ -184,6 +191,10 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
       env.STRIPE_TIMEOUT_MS === undefined ? DEFAULT_STRIPE_TIMEOUT_MS : Number(env.STRIPE_TIMEOUT_MS),
     dropInPriceAmount: Number(env.DROP_IN_PRICE_AMOUNT),
     dropInCurrency: (env.DROP_IN_CURRENCY as string).toLowerCase(),
+    refundRetryCapSeconds:
+      env.PAYMENT_REFUND_RETRY_CAP_SECONDS === undefined
+        ? DEFAULT_REFUND_RETRY_CAP_SECONDS
+        : Number(env.PAYMENT_REFUND_RETRY_CAP_SECONDS),
   };
 }
 
