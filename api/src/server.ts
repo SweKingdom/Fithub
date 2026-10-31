@@ -1,7 +1,9 @@
 import { buildApp } from './app.js';
 import { ConfigError, describePayments, loadConfig, type AppConfig } from './config.js';
 import { createDbFromEnv } from './db/client.js';
+import { startIntervalJobs } from './jobs/runner.js';
 import { startAutoNoShowSweeper } from './modules/attendance/auto-no-show.js';
+import { runWaitlistMaintenance } from './modules/waitlist/maintenance.js';
 import { systemClock } from './shared/clock.js';
 import { DomainEventBus } from './shared/domain-events.js';
 
@@ -27,13 +29,36 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // The sweeper needs the same database connection and event bus as the app, so both are created here.
+  // The jobs and the sweeper need the same database connection (and event bus) as the app, so they are created here.
   const db = createDbFromEnv();
   const events = new DomainEventBus();
   const app = await buildApp({ config, db, events });
 
+  let stopJobs = (): void => {};
+  if (config.jobs.enabled) {
+    stopJobs = startIntervalJobs(
+      [
+        {
+          name: 'waitlist-maintenance',
+          intervalMs: config.waitlist.jobIntervalSeconds * 1000,
+          run: async () => {
+            await runWaitlistMaintenance({
+              db,
+              clock: systemClock,
+              config: config.waitlist,
+              notifier: app.notifier,
+              logger: app.log,
+            });
+          },
+        },
+      ],
+      app.log,
+    );
+  }
+
   let stopSweeper: (() => void) | null = null;
   const shutdown = (): void => {
+    stopJobs();
     stopSweeper?.();
     void app
       .close()

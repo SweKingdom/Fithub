@@ -4,6 +4,7 @@ import type { Attendance, BookingTable, Database } from '../../src/db/schema.js'
 import type { AppUserTable } from '../../src/modules/auth/db-types.js';
 import { hashPassword } from '../../src/modules/auth/password.js';
 import type { MemberType, Role } from '../../src/modules/auth/types.js';
+import type { WaitlistEntryStatus } from '../../src/modules/waitlist/table.js';
 
 const TEST_SCRYPT_COST = 16384;
 
@@ -94,6 +95,26 @@ export async function createBooking(db: Kysely<Database>, fields: CreateBookingF
       attendance: fields.attendance,
       attendance_recorded_by: fields.attendanceRecordedBy ?? null,
       attendance_recorded_at: fields.attendanceRecordedAt ?? null,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+/** Entries are queued in the order they are created (`queue_seq`). A non-`waiting` entry gets `ended_at` = `joinedAt`. */
+export async function createWaitlistEntry(
+  db: Kysely<Database>,
+  fields: { classId: string; memberId: string; status?: WaitlistEntryStatus; joinedAt?: Date },
+) {
+  const status = fields.status ?? 'waiting';
+  const joinedAt = fields.joinedAt ?? new Date();
+  return db
+    .insertInto('waitlist_entry')
+    .values({
+      class_id: fields.classId,
+      member_id: fields.memberId,
+      status,
+      joined_at: joinedAt,
+      ended_at: status === 'waiting' ? null : joinedAt,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
