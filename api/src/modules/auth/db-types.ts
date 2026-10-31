@@ -1,4 +1,5 @@
 import type { ColumnType, Generated } from 'kysely';
+import type { Database } from '../../db/schema.js';
 import type { MemberType, Role } from './types.js';
 
 /** `app_user` (migration 0002). */
@@ -25,16 +26,5 @@ export interface UserSessionTable {
   expires_at: Date;
 }
 
-/** The columns of `club` (US-117) that the auth module reads. */
-export interface AuthClubTable {
-  id: string;
-  code: string;
-  name: string;
-}
-
-/** The tables the auth module touches. Merge into `db/schema.ts` once the shared schema file is on this branch. */
-export interface AuthDatabase {
-  app_user: AppUserTable;
-  user_session: UserSessionTable;
-  club: AuthClubTable;
-}
+/** The auth module works on the shared schema, so the app's one connection can be passed to it as it is. */
+export type AuthDatabase = Database;

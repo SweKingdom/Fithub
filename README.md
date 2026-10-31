@@ -2,6 +2,33 @@
 
 Gym class booking for four clubs: a React SPA (`web/`) on a Fastify JSON API (`api/`) with PostgreSQL.
 
+## Local setup
+
+Needs Node.js 22 and Docker.
+
+```
+docker compose up -d db          # PostgreSQL 16 with the databases fithub and fithub_test
+cp .env.example .env             # DATABASE_URL and TEST_DATABASE_URL match docker-compose.yml
+npm install
+npm run db:migrate
+npm run db:seed:clubs -w api -- --file seed/clubs.example.json
+npm run dev -w api               # API on http://localhost:3000
+npm run dev -w web               # web app on http://localhost:5173 (proxies /api to the API)
+```
+
+Checks (the same chain as CI): `npm run lint`, `npm run typecheck`, `npm run test:unit -w api`, `npm run test:integration -w api` (needs the database; it only runs on a database whose name ends in `_test`), `npm test -w web`, `npm run build`. `npm run ci` runs all of them.
+
+`GET /health` (outside `/api`, no sign-in) answers `200 {"status":"ok","db":"ok"}`, or `503 {"status":"error","db":"unreachable"}` when the database does not answer.
+
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection string. Required by the API and the operator commands | none |
+| `TEST_DATABASE_URL` | Database for the integration tests; the name must end with `_test`. Falls back to `DATABASE_URL` | none |
+| `PORT`, `HOST` | Where the API listens | `3000`, `0.0.0.0` |
+| `LOG_LEVEL` | Log level of the API | `info` |
+
+Seeding clubs: `api/seed/clubs.example.json` shows the format `[{ "code", "name", "timezone" }]`. Running the command again updates name and time zone of existing codes.
+
 ## Configuration
 
 Settings are read from environment variables (`.env` locally, see `.env.example`) and validated at startup in `api/src/config.ts`. An invalid setting stops the API with `Invalid configuration: <VARIABLE>: <reason>`. The message names the variable and never its value.
@@ -29,7 +56,7 @@ Rules:
 
 ### Creating accounts (operator)
 
-Run from the repository root. They need `DATABASE_URL` in the environment, the migrations applied (`npm run db:migrate`) and the clubs seeded. The password is read from standard input and is never accepted as an argument, so it stays out of the shell history and the process list.
+Run from the repository root. They need `DATABASE_URL` in the environment (or in `.env`), the migrations applied (`npm run db:migrate`) and the clubs seeded. The password is read from standard input and is never accepted as an argument, so it stays out of the shell history and the process list.
 
 ```
 echo "<password, at least 12 characters>" | npm run user:create -w api -- --email anna@example.com --name "Anna Berg" --role instructor --club <CLUB CODE> --password-stdin

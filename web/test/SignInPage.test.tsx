@@ -104,14 +104,15 @@ describe('SignInPage (US-118 AC 11)', () => {
     expect(button.disabled).toBe(true);
   });
 
-  it('sends the email and password to the API and goes to / after a successful sign-in', async () => {
+  it('sends the email as typed (letter case kept; the API normalises it) and goes to / after a successful sign-in', async () => {
     mocks.login.mockResolvedValue(ME);
     renderPage();
     await screen.findByLabelText('Email');
-    fillAndSubmit(' Anna@Example.com ', 'correct-horse-battery');
+    // An email input removes surrounding spaces itself; the API also accepts them (see auth.login.test.ts).
+    fillAndSubmit('Anna@Example.com', 'correct-horse-battery');
 
     await waitFor(() => expect(screen.getByTestId('url').textContent).toBe('/'));
-    expect(mocks.login).toHaveBeenCalledWith(' Anna@Example.com ', 'correct-horse-battery');
+    expect(mocks.login).toHaveBeenCalledWith('Anna@Example.com', 'correct-horse-battery');
   });
 
   it('goes to the next path after sign-in when it is a same-site path', async () => {
