@@ -71,3 +71,15 @@ export interface PaymentGateway {
   /** Verifies the signature over the raw body. Throws `InvalidSignatureError`. */
   constructEvent(rawBody: Buffer, signatureHeader: string | undefined): WebhookEvent;
 }
+
+/**
+ * The gateway while `PAYMENTS_ENABLED=false`: there is no Stripe client and no webhook secret, so every call
+ * fails and every webhook is refused as unsigned.
+ */
+export const disabledGateway: PaymentGateway = {
+  createIntent: () => Promise.reject(new GatewayError('rejected', 'payments_disabled')),
+  retrieveIntent: () => Promise.reject(new GatewayError('rejected', 'payments_disabled')),
+  constructEvent: () => {
+    throw new InvalidSignatureError();
+  },
+};

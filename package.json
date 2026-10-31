@@ -14,6 +14,7 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "npm run typecheck -w api && npm run typecheck -w web",
     "test": "npm test -w api && npm test -w web",
+    "test:unit": "npm run test:unit -w api",
     "build": "npm run build -w api && npm run build -w web",
     "db:migrate": "npm run db:migrate -w api",
     "ci": "npm run lint && npm run typecheck && npm run db:migrate && npm test && npm run build"

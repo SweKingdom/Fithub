@@ -3,6 +3,7 @@ import { AppHeader } from './components/AppHeader';
 import { RequireAuth } from './components/RequireAuth';
 import { AuthProvider } from './lib/auth';
 import { MyBookingsPage } from './pages/MyBookingsPage';
+import { PayBookingPage } from './pages/PayBookingPage';
 import { SchedulePage } from './pages/SchedulePage';
 import { SignInPage } from './pages/SignInPage';
 
@@ -30,6 +31,14 @@ export function App() {
               element={
                 <RequireAuth roles={['member']}>
                   <MyBookingsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/bookings/:bookingId/pay"
+              element={
+                <RequireAuth roles={['member']}>
+                  <PayBookingPage />
                 </RequireAuth>
               }
             />

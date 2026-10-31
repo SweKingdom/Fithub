@@ -1,4 +1,11 @@
 import type { NotificationEvent, Notifier } from '../../src/notifications/notifier.js';
+import {
+  InvalidSignatureError,
+  GatewayError,
+  type CreateIntentInput,
+  type PaymentGateway,
+  type PaymentIntentInfo,
+} from '../../src/modules/payments/gateway.js';
 import type { Logger } from '../../src/shared/logger.js';
 
 /** Records every `notify` call. Set `failWith` to make it throw (the call is still recorded). */
@@ -27,4 +34,45 @@ export function createRecordingLogger(): { logger: Logger; entries: LogEntry[] }
       entries.push({ level, fields: fields as Record<string, unknown>, message });
     };
   return { logger: { info: record('info'), warn: record('warn'), error: record('error') }, entries };
+}
+
+/**
+ * A scripted payment gateway. `createIntent` succeeds unless a failure is queued in `createFailures` (one per
+ * call, first in first out), and, like Stripe, returns the same intent for a repeated idempotency key. Records
+ * every call. Webhook events are verified with the real Stripe gateway in the webhook tests, so `constructEvent`
+ * refuses everything here.
+ */
+export class FakeGateway implements PaymentGateway {
+  readonly createCalls: CreateIntentInput[] = [];
+  readonly retrieveCalls: string[] = [];
+  createFailures: GatewayError[] = [];
+  retrieveFailure: GatewayError | null = null;
+  /** Runs at the start of every `createIntent` call, before it answers. */
+  beforeCreate: (() => Promise<void>) | null = null;
+  private readonly intents = new Map<string, PaymentIntentInfo>();
+
+  async createIntent(input: CreateIntentInput): Promise<PaymentIntentInfo> {
+    this.createCalls.push(input);
+    await this.beforeCreate?.();
+    const failure = this.createFailures.shift();
+    if (failure) throw failure;
+    const known = this.intents.get(input.idempotencyKey);
+    if (known) return known;
+    const number = this.intents.size + 1;
+    const intent = { id: `pi_fake_${number}`, clientSecret: `pi_fake_${number}_secret_x`, status: 'requires_payment_method' };
+    this.intents.set(input.idempotencyKey, intent);
+    return intent;
+  }
+
+  async retrieveIntent(intentId: string): Promise<PaymentIntentInfo> {
+    this.retrieveCalls.push(intentId);
+    if (this.retrieveFailure) throw this.retrieveFailure;
+    const known = [...this.intents.values()].find((intent) => intent.id === intentId);
+    if (!known) throw new GatewayError('rejected', 'resource_missing', 404);
+    return known;
+  }
+
+  constructEvent(): never {
+    throw new InvalidSignatureError();
+  }
 }

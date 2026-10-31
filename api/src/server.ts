@@ -44,6 +44,7 @@ async function main(): Promise<void> {
               config: config.waitlist,
               notifier: app.notifier,
               logger: app.log,
+              paymentsEnabled: config.payments.enabled,
             });
           },
         },

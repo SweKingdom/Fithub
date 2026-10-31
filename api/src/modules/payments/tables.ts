@@ -1,12 +1,16 @@
 import type { ColumnType, Generated } from 'kysely';
 
-/**
- * Kysely table types for `payment` and `stripe_event` (US-132, ADR-008).
- * Kept next to the payments module until `api/src/db/schema.ts` exists (TK-119); then add
- * `payment: PaymentTable` and `stripe_event: StripeEventTable` to its `Database` interface and re-export.
- */
+/** Kysely table types for `payment` and `stripe_event` (migration 0023, US-132, ADR-008), merged into `Database` in `db/schema.ts`. */
 
-export type PaymentStatus = 'pending_retry' | 'requires_payment' | 'succeeded' | 'failed' | 'expired' | 'refunded';
+export const PAYMENT_STATUSES = [
+  'pending_retry',
+  'requires_payment',
+  'succeeded',
+  'failed',
+  'expired',
+  'refunded',
+] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export type RefundStatus = 'none' | 'pending' | 'succeeded' | 'failed';
 export type RefundReason = 'member_cancelled' | 'class_cancelled' | 'late_payment' | 'manual';
 

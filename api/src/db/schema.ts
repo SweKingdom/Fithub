@@ -1,5 +1,6 @@
-import type { Generated } from 'kysely';
+import type { ColumnType, Generated } from 'kysely';
 import type { AppUserTable, UserSessionTable } from '../modules/auth/db-types.js';
+import type { PaymentTable, StripeEventTable } from '../modules/payments/tables.js';
 import type { WaitlistEntryTable } from '../modules/waitlist/table.js';
 
 /** `club` (migration 0001, US-117). */
@@ -30,7 +31,7 @@ export type AttendanceStatus = 'unknown' | 'attended' | 'no_show';
 
 /**
  * `booking` (migration 0004; `source` and `booked_at` from migration 0006; `attendance` and `no_show_block_id`
- * from migration 0021, US-130).
+ * from migration 0021, US-130; `cancelled_at` and `updated_at` from migration 0022, US-132).
  */
 export interface BookingTable {
   id: Generated<string>;
@@ -42,6 +43,8 @@ export interface BookingTable {
   attendance: Generated<AttendanceStatus>;
   /** The block this no-show was counted for; null while it is uncounted. */
   no_show_block_id: string | null;
+  cancelled_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
+  updated_at: ColumnType<Date, Date | undefined, Date>;
   created_at: Generated<Date>;
 }
 
@@ -77,4 +80,6 @@ export interface Database {
   booking_block: BookingBlockTable;
   waitlist_entry: WaitlistEntryTable;
   import_member_alias: ImportMemberAliasTable;
+  payment: PaymentTable;
+  stripe_event: StripeEventTable;
 }

@@ -106,6 +106,24 @@ Rules:
 - There is one Stripe account for all four clubs.
 - The drop-in price, currency and Stripe account ownership are not decided yet. Do not set `PAYMENTS_ENABLED=true` in production until the product owner has confirmed them.
 
+### Drop-in payment flow (US-132)
+
+A drop-in booking is created as `pending_payment` and holds its place; it becomes `confirmed` only when Stripe reports `payment_intent.succeeded`. Card data goes from the browser to Stripe (Payment Element) and never reaches FitHub.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/bookings/{id}/payment` | Members, own booking only (10 per minute per member). Opens or resumes the payment: returns the PaymentIntent client secret and the publishable key. `409 BOOKING_NOT_PAYABLE` for a confirmed or cancelled booking, `409 PAYMENTS_UNAVAILABLE` while payments are off, `503 PAYMENT_PROVIDER_UNAVAILABLE` when Stripe cannot be reached |
+| `GET /api/bookings/{id}/payment` | Same payment without the client secret; never calls Stripe. The pay page (`/bookings/{id}/pay`) polls it every 2 s for at most 30 s after the card step |
+| `POST /webhooks/stripe` | Outside `/api`, no session. Authenticity is the `Stripe-Signature` header over the raw body: missing or invalid → `400 INVALID_SIGNATURE` and nothing changes. Each event id is processed once; a failure answers `500` and Stripe retries |
+
+Rules:
+
+- While `PAYMENTS_ENABLED=false`, drop-in members cannot book and are not promoted from the waiting list (their entry stays `waiting`).
+- A declined payment is final: the booking is `cancelled`, the place is freed and the waiting list is promoted. The member must book again.
+- A payment that succeeds after its booking was cancelled is marked `refund_status = pending` with `refund_reason = late_payment`; US-134 sends the refund.
+- Run `npm run db:migrate` (migration `0022` adds `booking.cancelled_at` and `updated_at`, `0023` creates `payment` and `stripe_event`).
+- If a Content-Security-Policy is set by the hosting, allow `https://js.stripe.com` (script, frame) and `https://api.stripe.com` (connect).
+
 ### Stripe webhook per environment
 
 Register `https://{api-host}/webhooks/stripe` in the Stripe dashboard (test mode for non-production) with exactly these events: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Use the same API version as the one pinned in `api/src/modules/payments/stripe-gateway.ts` (`STRIPE_API_VERSION`). Store the endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`.

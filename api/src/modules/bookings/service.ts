@@ -7,6 +7,7 @@ import type { Clock } from '../../shared/clock.js';
 import { DomainError } from '../../shared/errors.js';
 import type { Logger } from '../../shared/logger.js';
 import type { AuthUser } from '../auth/types.js';
+import { PAYMENT_STATUSES } from '../payments/tables.js';
 import { notifyPromotions, promoteNext } from '../waitlist/promotion.js';
 import { assertStaffOfClass, classNotFound, getOwnBookingForUpdate, getReadableBooking } from './access.js';
 import {
@@ -31,6 +32,8 @@ export const bookingDtoSchema = z.object({
   durationMinutes: z.number().int(),
   status: bookingStatus,
   attendance,
+  /** `null` for a booking without a payment row (regular members). */
+  paymentStatus: z.enum(PAYMENT_STATUSES).nullable(),
   canCancel: z.boolean(),
   /** Only when the viewer is staff. */
   memberName: z.string().optional(),
@@ -70,6 +73,8 @@ export interface BookingDeps {
   db: Kysely<Database>;
   clock: Clock;
   waitlist: WaitlistConfig;
+  /** `config.payments.enabled`: while false, a freed place is not offered to drop-in members (US-132). */
+  paymentsEnabled: boolean;
   notifier: Notifier;
   logger: Logger;
 }
@@ -92,6 +97,7 @@ export function toBookingDto(row: BookingRow, viewer: AuthUser, now: Date): Book
     durationMinutes: row.duration_minutes,
     status: row.status,
     attendance: row.attendance,
+    paymentStatus: row.payment_status,
     canCancel: !isStaff && row.member_id === viewer.id && isActive(row.status) && row.start_at > now,
     ...(isStaff ? { memberName: row.member_name } : {}),
   };
@@ -144,8 +150,13 @@ export async function cancelBooking(deps: BookingDeps, user: AuthUser, id: strin
     if (!isActive(booking.status) || gymClass.start_at <= now) {
       throw new DomainError('BOOKING_NOT_CANCELLABLE', 'This booking can no longer be cancelled.', 409);
     }
-    await markBookingCancelled(trx, booking.id);
-    return promoteNext(trx, booking.class_id, { clock: deps.clock, config: deps.waitlist, logger: deps.logger });
+    await markBookingCancelled(trx, booking.id, now);
+    return promoteNext(trx, booking.class_id, {
+      clock: deps.clock,
+      config: deps.waitlist,
+      logger: deps.logger,
+      paymentsEnabled: deps.paymentsEnabled,
+    });
   });
   await notifyPromotions(promotions, deps.notifier, deps.logger);
   return getBooking(deps, user, id);

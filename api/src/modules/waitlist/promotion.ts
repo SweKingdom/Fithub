@@ -23,6 +23,11 @@ export interface PromotionContext {
   clock: Clock;
   config: WaitlistConfig;
   logger: Logger;
+  /**
+   * `false` while online payment is off (`PAYMENTS_ENABLED=false`): a drop-in member cannot pay, so promoting them
+   * would hold a place without a way to pay (US-132). Callers pass the configured value; left out, nobody is skipped.
+   */
+  paymentsEnabled?: boolean;
 }
 
 /** One member who got a place. Ids only. */
@@ -34,16 +39,22 @@ export interface Promotion {
   bookingStatus: 'confirmed' | 'pending_payment';
 }
 
-/** `already_booked`: the entry is obsolete and is removed. Later stories add more outcomes (blocked, no credit). */
-export type PromotionEligibility = 'eligible' | 'already_booked';
+/**
+ * `already_booked`: the entry is obsolete and is removed. `payments_unavailable`: a drop-in member while payments
+ * are off; the entry stays `waiting`. Later stories add more outcomes (blocked, no credit).
+ */
+export type PromotionEligibility = 'eligible' | 'already_booked' | 'payments_unavailable';
 
 export async function checkPromotionEligibility(
   trx: Kysely<Database>,
   entry: WaitingCandidate,
   classRow: Pick<LockedClass, 'id'>,
+  paymentsEnabled = true,
 ): Promise<PromotionEligibility> {
   const active = await findActiveBooking(trx, classRow.id, entry.member_id);
-  return active ? 'already_booked' : 'eligible';
+  if (active) return 'already_booked';
+  if (entry.member_type === 'drop_in' && !paymentsEnabled) return 'payments_unavailable';
+  return 'eligible';
 }
 
 /**
@@ -70,10 +81,12 @@ export async function promoteNext(
   for (const entry of await listWaitingForPromotion(trx, classId)) {
     if (free <= 0) break;
 
-    if ((await checkPromotionEligibility(trx, entry, cls)) === 'already_booked') {
+    const eligibility = await checkPromotionEligibility(trx, entry, cls, ctx.paymentsEnabled);
+    if (eligibility === 'already_booked') {
       await markRemoved(trx, entry.id, now);
       continue;
     }
+    if (eligibility === 'payments_unavailable') continue;
     if (!(await claimEntry(trx, entry.id, now))) continue;
 
     const bookingStatus = entry.member_type === 'drop_in' ? 'pending_payment' : 'confirmed';

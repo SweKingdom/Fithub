@@ -59,13 +59,17 @@ export type BookingPeriod = 'upcoming' | 'past';
 
 type BookingEb = ExpressionBuilder<Database, 'booking' | 'gym_class' | 'club' | 'app_user'>;
 
-/** A booking with its class, club and member name. Every access query below adds its own owner or club filter. */
+/**
+ * A booking with its class, club, member name and payment status (`null` without a payment row, US-132).
+ * Every access query below adds its own owner or club filter.
+ */
 function bookingRows(db: Kysely<Database>) {
   return db
     .selectFrom('booking')
     .innerJoin('gym_class', 'gym_class.id', 'booking.class_id')
     .innerJoin('club', 'club.id', 'gym_class.club_id')
     .innerJoin('app_user', 'app_user.id', 'booking.member_id')
+    .leftJoin('payment', 'payment.booking_id', 'booking.id')
     .select([
       'booking.id as id',
       'booking.member_id as member_id',
@@ -78,6 +82,7 @@ function bookingRows(db: Kysely<Database>) {
       'club.name as club_name',
       'club.timezone as club_timezone',
       'app_user.full_name as member_name',
+      'payment.status as payment_status',
     ]);
 }
 
@@ -155,8 +160,12 @@ export async function findOwnBooking(
   return (lock ? query.forUpdate() : query).executeTakeFirst();
 }
 
-export async function markBookingCancelled(trx: Kysely<Database>, id: string): Promise<void> {
-  await trx.updateTable('booking').set({ status: 'cancelled' }).where('id', '=', id).execute();
+export async function markBookingCancelled(trx: Kysely<Database>, id: string, now: Date): Promise<void> {
+  await trx
+    .updateTable('booking')
+    .set({ status: 'cancelled', cancelled_at: now, updated_at: now })
+    .where('id', '=', id)
+    .execute();
 }
 
 export async function findClassForRoster(

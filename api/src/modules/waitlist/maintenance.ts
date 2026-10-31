@@ -13,6 +13,8 @@ export interface WaitlistMaintenanceDeps {
   config: WaitlistConfig;
   notifier: Notifier;
   logger: Logger;
+  /** `config.payments.enabled`: while false, drop-in members stay on the waiting list (US-132). */
+  paymentsEnabled?: boolean;
 }
 
 export interface WaitlistMaintenanceResult {
@@ -27,7 +29,7 @@ export interface WaitlistMaintenanceResult {
  * statement and promotion is serialised by the class lock.
  */
 export async function runWaitlistMaintenance(deps: WaitlistMaintenanceDeps): Promise<WaitlistMaintenanceResult> {
-  const { db, clock, config, notifier, logger } = deps;
+  const { db, clock, config, notifier, logger, paymentsEnabled } = deps;
   const cutoff = config.promotionCutoffMinutes;
 
   const expired = await expireEntries(db, clock.now(), cutoff);
@@ -38,7 +40,7 @@ export async function runWaitlistMaintenance(deps: WaitlistMaintenanceDeps): Pro
     try {
       const promotions = await db
         .transaction()
-        .execute((trx) => promoteNext(trx, classId, { clock, config, logger }));
+        .execute((trx) => promoteNext(trx, classId, { clock, config, logger, paymentsEnabled }));
       promoted += promotions.length;
       await notifyPromotions(promotions, notifier, logger);
     } catch (error) {

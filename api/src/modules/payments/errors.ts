@@ -26,6 +26,15 @@ export function paymentNotFound(): DomainError {
   return new DomainError('PAYMENT_NOT_FOUND', 'There is no payment for this booking.', 404);
 }
 
+/** Stripe could not be reached while the member resumed a payment; nothing changed, so they can try again. */
+export function paymentProviderUnavailable(): DomainError {
+  return new DomainError(
+    'PAYMENT_PROVIDER_UNAVAILABLE',
+    "We couldn't reach our payment provider. Please try again in a moment.",
+    503,
+  );
+}
+
 /** Webhook with a missing or invalid `Stripe-Signature`. Never echoes the body or the secret. */
 export function invalidSignature(): DomainError {
   return new DomainError('INVALID_SIGNATURE', 'The webhook signature is missing or invalid.', 400);

@@ -12,6 +12,11 @@ import { authRoutes } from './modules/auth/routes.js';
 import { bookingRoutes } from './modules/bookings/routes.js';
 import { classRoutes } from './modules/classes/routes.js';
 import { clubRoutes } from './modules/clubs/routes.js';
+import { disabledGateway, type PaymentGateway } from './modules/payments/gateway.js';
+import { paymentRoutes } from './modules/payments/routes.js';
+import type { PaymentDeps } from './modules/payments/service.js';
+import { createStripeGateway } from './modules/payments/stripe-gateway.js';
+import { webhookRoutes } from './modules/payments/webhook.js';
 import { LogNotifier, type Notifier } from './notifications/notifier.js';
 import { healthRoutes } from './routes/health.js';
 import { systemClock, type Clock } from './shared/clock.js';
@@ -37,12 +42,14 @@ declare module 'fastify' {
   }
 }
 
-/** No password, session token or cookie ever reaches the log (US-118 AC 9). */
+/** No password, session token, cookie, Stripe signature or PaymentIntent client secret ever reaches the log. */
 const LOG_REDACT = [
   'req.headers.cookie',
   'req.headers.authorization',
+  'req.headers["stripe-signature"]',
   'res.headers["set-cookie"]',
   '*.password',
+  '*.clientSecret',
 ];
 
 export interface BuildAppOptions {
@@ -55,6 +62,8 @@ export interface BuildAppOptions {
   events?: DomainEventBus;
   /** Defaults to `LogNotifier` (one log line per event) until a delivery channel is decided. */
   notifier?: Notifier;
+  /** Defaults to Stripe when `PAYMENTS_ENABLED=true`, otherwise to a gateway that refuses every call. */
+  paymentGateway?: PaymentGateway;
   /** Log level and destination; redaction is always applied. */
   logger?: { level?: string; stream?: { write(line: string): void } };
 }
@@ -67,6 +76,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const events = options.events ?? new DomainEventBus();
   const blockService = createBlockService({ clock, config: config.noShow });
   events.subscribe('AttendanceRecorded', blockService.onAttendanceRecorded);
+  const paymentGateway =
+    options.paymentGateway ?? (config.payments.enabled ? createStripeGateway(config.payments) : disabledGateway);
 
   const logger = {
     level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === 'test' ? 'silent' : 'info'),
@@ -96,7 +107,18 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(cookie);
   await app.register(rateLimit, { global: false });
 
+  const paymentDeps: PaymentDeps = {
+    db,
+    clock,
+    payments: config.payments,
+    gateway: paymentGateway,
+    waitlist: config.waitlist,
+    notifier: app.notifier,
+    logger: app.log,
+  };
+
   await app.register(healthRoutes(db));
+  await app.register(webhookRoutes(paymentDeps));
 
   await app.register(
     async (api) => {
@@ -105,7 +127,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await api.register(authRoutes({ db, clock, config: config.auth, blocks: blockService }));
       await api.register(clubRoutes(db));
       await api.register(classRoutes({ db, clock }));
-      await api.register(bookingRoutes({ db, clock, waitlist: config.waitlist }));
+      await api.register(
+        bookingRoutes({ db, clock, waitlist: config.waitlist, paymentsEnabled: config.payments.enabled }),
+      );
+      await api.register(paymentRoutes(paymentDeps));
     },
     { prefix: '/api' },
   );

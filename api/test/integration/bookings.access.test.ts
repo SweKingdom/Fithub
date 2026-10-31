@@ -44,6 +44,16 @@ const MATRIX: {
   { name: 'roster of another club', method: 'GET', url: (w) => `/api/classes/${w.classB}/bookings`, actor: 'staffA', status: 403, code: 'FORBIDDEN' },
   { name: 'roster as a member', method: 'GET', url: (w) => `/api/classes/${w.classA}/bookings`, actor: 'memberA', status: 403, code: 'FORBIDDEN' },
   { name: 'roster as signed-out caller', method: 'GET', url: (w) => `/api/classes/${w.classA}/bookings`, actor: 'anonymous', status: 401, code: 'UNAUTHENTICATED' },
+  { name: 'payment of another member', method: 'GET', url: (w) => `/api/bookings/${w.bookingB}/payment`, actor: 'memberA', status: 404, code: 'BOOKING_NOT_FOUND' },
+  { name: 'payment with an unknown id', method: 'GET', url: () => `/api/bookings/${RANDOM_ID}/payment`, actor: 'memberA', status: 404, code: 'BOOKING_NOT_FOUND' },
+  { name: 'payment of an own booking without a payment row', method: 'GET', url: (w) => `/api/bookings/${w.bookingA}/payment`, actor: 'memberA', status: 404, code: 'PAYMENT_NOT_FOUND' },
+  { name: 'payment as staff', method: 'GET', url: (w) => `/api/bookings/${w.bookingA}/payment`, actor: 'staffA', status: 403, code: 'FORBIDDEN' },
+  { name: 'payment as signed-out caller', method: 'GET', url: (w) => `/api/bookings/${w.bookingA}/payment`, actor: 'anonymous', status: 401, code: 'UNAUTHENTICATED' },
+  { name: 'pay for booking of another member', method: 'POST', url: (w) => `/api/bookings/${w.bookingB}/payment`, actor: 'memberA', status: 404, code: 'BOOKING_NOT_FOUND' },
+  { name: 'pay with an unknown id', method: 'POST', url: () => `/api/bookings/${RANDOM_ID}/payment`, actor: 'memberA', status: 404, code: 'BOOKING_NOT_FOUND' },
+  { name: 'pay for an own booking that is already confirmed', method: 'POST', url: (w) => `/api/bookings/${w.bookingA}/payment`, actor: 'memberA', status: 409, code: 'BOOKING_NOT_PAYABLE' },
+  { name: 'pay as staff', method: 'POST', url: (w) => `/api/bookings/${w.bookingA}/payment`, actor: 'staffB', status: 403, code: 'FORBIDDEN' },
+  { name: 'pay as signed-out caller', method: 'POST', url: (w) => `/api/bookings/${w.bookingA}/payment`, actor: 'anonymous', status: 401, code: 'UNAUTHENTICATED' },
 ];
 
 describe('booking access (US-123)', () => {
@@ -58,6 +68,7 @@ describe('booking access (US-123)', () => {
     await app.close();
   });
   beforeEach(async () => {
+    await db.deleteFrom('payment').execute();
     await db.deleteFrom('booking').execute();
     await db.deleteFrom('gym_class').execute();
     const clubA = await createClub(db, { name: 'Club A', timezone: 'Europe/Stockholm' });
@@ -83,7 +94,11 @@ describe('booking access (US-123)', () => {
     };
   });
 
-  const snapshot = async () => JSON.stringify(await db.selectFrom('booking').selectAll().orderBy('id').execute());
+  const snapshot = async () =>
+    JSON.stringify([
+      await db.selectFrom('booking').selectAll().orderBy('id').execute(),
+      await db.selectFrom('payment').selectAll().orderBy('id').execute(),
+    ]);
 
   function request(method: 'GET' | 'POST', url: string, actor: Actor) {
     return app.inject({

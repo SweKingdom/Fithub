@@ -4,6 +4,7 @@ import type { BookingTable, Database } from '../../src/db/schema.js';
 import type { AppUserTable } from '../../src/modules/auth/db-types.js';
 import { hashPassword } from '../../src/modules/auth/password.js';
 import type { MemberType, Role } from '../../src/modules/auth/types.js';
+import type { PaymentStatus } from '../../src/modules/payments/tables.js';
 import type { WaitlistEntryStatus } from '../../src/modules/waitlist/table.js';
 
 const TEST_SCRYPT_COST = 16384;
@@ -77,11 +78,44 @@ export async function createClass(db: Kysely<Database>, fields: CreateClassField
 
 export async function createBooking(
   db: Kysely<Database>,
-  fields: { classId: string; memberId: string; status: BookingTable['status'] },
+  fields: { classId: string; memberId: string; status: BookingTable['status']; bookedAt?: Date },
 ) {
   return db
     .insertInto('booking')
-    .values({ class_id: fields.classId, member_id: fields.memberId, status: fields.status })
+    .values({
+      class_id: fields.classId,
+      member_id: fields.memberId,
+      status: fields.status,
+      booked_at: fields.bookedAt,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+export interface CreatePaymentFields {
+  bookingId: string;
+  /** Defaults to `requires_payment`. */
+  status?: PaymentStatus;
+  /** Defaults to a made-up id for the states that need one, `null` otherwise. */
+  intentId?: string | null;
+  amount?: number;
+}
+
+/** A `payment` row as the booking transaction and `startPayment` would leave it in the given state. */
+export async function createPayment(db: Kysely<Database>, fields: CreatePaymentFields) {
+  const status = fields.status ?? 'requires_payment';
+  const needsIntent = status === 'requires_payment' || status === 'succeeded' || status === 'refunded';
+  return db
+    .insertInto('payment')
+    .values({
+      booking_id: fields.bookingId,
+      idempotency_key: `booking-${fields.bookingId}`,
+      stripe_payment_intent_id: fields.intentId === undefined ? (needsIntent ? `pi_${randomUUID()}` : null) : fields.intentId,
+      amount: fields.amount ?? 1500,
+      currency: 'eur',
+      status,
+      next_retry_at: status === 'pending_retry' ? new Date() : null,
+    })
     .returningAll()
     .executeTakeFirstOrThrow();
 }

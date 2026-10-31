@@ -1,4 +1,22 @@
 import Stripe from 'stripe';
+import { loadConfig, type AppConfig } from '../../src/config.js';
+
+export const WEBHOOK_SECRET = 'whsec_testsecret123';
+export const PUBLISHABLE_KEY = 'pk_test_abc123';
+export const DROP_IN_PRICE = 1500;
+
+/** The app configuration with payments on (test keys, price 1500, EUR). No Stripe call is ever made with it. */
+export function paymentsConfig(env: Record<string, string> = {}): AppConfig {
+  return loadConfig({
+    PAYMENTS_ENABLED: 'true',
+    STRIPE_SECRET_KEY: 'sk_test_abc123',
+    STRIPE_PUBLISHABLE_KEY: PUBLISHABLE_KEY,
+    STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
+    DROP_IN_PRICE_AMOUNT: String(DROP_IN_PRICE),
+    DROP_IN_CURRENCY: 'EUR',
+    ...env,
+  });
+}
 
 export interface SignedWebhook {
   /** The exact bytes to send as the request body. */
