@@ -267,3 +267,29 @@ Indexes: `gym_class_club_start_idx (club_id, start_at)`, `gym_class_instructor_i
 - Unit: `test/unit/classes.schema.test.ts`.
 - Integration (not yet run): `test/integration/classes.create.test.ts`, `test/integration/clubs.instructors.test.ts`. The auth protection suite covers both routes automatically.
 - Factory: `createClass` in `test/helpers/factories.ts`.
+
+## Bookings access and read routes (US-123)
+
+Module: `api/src/modules/bookings/`. Access is decided in SQL, not after the fetch.
+
+| Route | Who | Behaviour |
+|---|---|---|
+| `GET /api/me/bookings?period=upcoming\|past&offset` | member | Own bookings. `upcoming` = `confirmed`, `pending_payment` on classes not yet ended, soonest first. `past` = any status on ended classes, newest first. Other `period` values → `400 VALIDATION_ERROR`. |
+| `GET /api/bookings/:id` | member (own), staff (own club) | Foreign, other-club or unknown id → `404 BOOKING_NOT_FOUND` "This booking does not exist." (identical body). |
+| `POST /api/bookings/:id/cancel` | member only | **Placeholder** (US-124 replaces the body). Staff → `403 FORBIDDEN`. Foreign or unknown id → `404`. Already cancelled or class started → `409 BOOKING_NOT_CANCELLABLE`. |
+| `GET /api/classes/:classId/bookings` | instructor, club manager (own club) | Roster, names only. Other club → `403 FORBIDDEN` "You can only manage classes for your own club.". Member → `403 FORBIDDEN` "Only instructors and club managers can manage classes.". |
+
+Files:
+- `access.ts`: `getReadableBooking`, `getOwnBookingForUpdate` (takes the class lock before the booking lock), `assertStaffOfClass`, `bookingNotFound`, `classNotFound`.
+- `repository.ts`: `listMemberBookings`, `findBookingForMember`, `findBookingForClub`, `findOwnBooking`, `markBookingCancelled`, `findClassForRoster`, `listClassRoster`.
+- `service.ts`: zod schemas, `toBookingDto`, `listMyBookings`, `getBooking`, `getClassRoster`, `cancelBooking`.
+
+`BookingDto`: `id, classId, className, clubName, clubTimezone, startAt, durationMinutes, status, attendance, canCancel`, plus `memberName` for staff viewers only.
+
+`canCancel` is computed only in `toBookingDto`: true when the viewer owns the booking, the status is `confirmed` or `pending_payment`, and the class has not started. Always false for staff. US-124 adds the cut-off rule (`BOOKING_CANCEL_CUTOFF_MINUTES`, not yet defined).
+
+Web: `/my-bookings` (`RequireAuth roles={['member']}`), `web/src/api/bookings.ts`, `MyBookingsPage.tsx`, `formatClubDateTime` in `web/src/lib/time.ts`.
+
+Tests: `bookings.list` and `bookings.access` integration tests (need the test database); `MyBookingsPage` web tests.
+
+Configuration and migrations: none. Depends on the `booking` table and `BookingDto` from US-122.
