@@ -1,5 +1,9 @@
 import { buildApp } from './app.js';
 import { ConfigError, describePayments, loadConfig, type AppConfig } from './config.js';
+import { createDbFromEnv } from './db/client.js';
+import { startIntervalJobs } from './jobs/runner.js';
+import { runWaitlistMaintenance } from './modules/waitlist/maintenance.js';
+import { systemClock } from './shared/clock.js';
 
 const DEFAULT_PORT = 3000;
 
@@ -23,9 +27,37 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const app = await buildApp({ config });
+  const db = createDbFromEnv();
+  const app = await buildApp({ config, db });
+
+  let stopJobs = (): void => {};
+  if (config.jobs.enabled) {
+    stopJobs = startIntervalJobs(
+      [
+        {
+          name: 'waitlist-maintenance',
+          intervalMs: config.waitlist.jobIntervalSeconds * 1000,
+          run: async () => {
+            await runWaitlistMaintenance({
+              db,
+              clock: systemClock,
+              config: config.waitlist,
+              notifier: app.notifier,
+              logger: app.log,
+            });
+          },
+        },
+      ],
+      app.log,
+    );
+  }
+
   const shutdown = (): void => {
-    void app.close().then(() => process.exit(0));
+    stopJobs();
+    void app
+      .close()
+      .then(() => db.destroy())
+      .then(() => process.exit(0));
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

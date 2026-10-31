@@ -1,5 +1,6 @@
 import type { Generated } from 'kysely';
 import type { AppUserTable, UserSessionTable } from '../modules/auth/db-types.js';
+import type { WaitlistEntryTable } from '../modules/waitlist/table.js';
 
 /** `club` (migration 0001, US-117). */
 export interface ClubTable {
@@ -25,12 +26,14 @@ export interface GymClassTable {
   created_at: Generated<Date>;
 }
 
-/** `booking` (migration 0004). */
+/** `booking` (migration 0004; `source` and `booked_at` from migration 0006). */
 export interface BookingTable {
   id: Generated<string>;
   class_id: string;
   member_id: string;
   status: 'confirmed' | 'pending_payment' | 'cancelled';
+  source: Generated<'direct' | 'waitlist'>;
+  booked_at: Generated<Date>;
   created_at: Generated<Date>;
 }
 
@@ -48,5 +51,6 @@ export interface Database {
   user_session: UserSessionTable;
   gym_class: GymClassTable;
   booking: BookingTable;
+  waitlist_entry: WaitlistEntryTable;
   import_member_alias: ImportMemberAliasTable;
 }
