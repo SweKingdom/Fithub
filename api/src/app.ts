@@ -10,6 +10,7 @@ import { authHook, originGuard } from './modules/auth/hooks.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { classRoutes } from './modules/classes/routes.js';
 import { clubRoutes } from './modules/clubs/routes.js';
+import { LogNotifier, type Notifier } from './notifications/notifier.js';
 import { healthRoutes } from './routes/health.js';
 import { systemClock, type Clock } from './shared/clock.js';
 import { registerErrorHandler } from './shared/errors.js';
@@ -24,6 +25,8 @@ export interface RouteTableEntry {
 declare module 'fastify' {
   interface FastifyInstance {
     routeTable: readonly RouteTableEntry[];
+    /** Member notifications, called after a transaction committed (ADR-012). */
+    notifier: Notifier;
   }
 }
 
@@ -41,11 +44,13 @@ export interface BuildAppOptions {
   /** Defaults to a connection from `DATABASE_URL`, closed together with the app. */
   db?: Kysely<Database>;
   clock?: Clock;
+  /** Defaults to `LogNotifier` (one log line per event) until a delivery channel is decided. */
+  notifier?: Notifier;
   /** Log level and destination; redaction is always applied. */
   logger?: { level?: string; stream?: { write(line: string): void } };
 }
 
-/** Builds the Fastify app with injected dependencies. Never listens: `server.ts` does that. */
+/** Builds the Fastify app with injected dependencies. Never listens and never starts jobs: `server.ts` does that. */
 export async function buildApp(options: BuildAppOptions = {}) {
   const config = options.config ?? loadConfig();
   const clock = options.clock ?? systemClock;
@@ -67,6 +72,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     routeTable.push({ method: route.method, url: route.url, public: route.config?.public === true });
   });
   app.decorate('routeTable', routeTable);
+  app.decorate('notifier', options.notifier ?? new LogNotifier(app.log));
 
   if (options.db === undefined) app.addHook('onClose', () => db.destroy());
 

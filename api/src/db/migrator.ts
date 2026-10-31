@@ -22,7 +22,9 @@ const folderProvider: MigrationProvider = {
 };
 
 export function createMigrator(db: Kysely<Database>): Migrator {
-  return new Migrator({ db, provider: folderProvider });
+  // Stories merge in any order (0020 exists before 0005), so a database that already ran a higher number
+  // must still accept a lower one that it has not run yet.
+  return new Migrator({ db, provider: folderProvider, allowUnorderedMigrations: true });
 }
 
 /** Applies every pending migration; returns the names that ran. Throws when one fails. */

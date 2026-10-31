@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022) and
- * sign-in/session settings (US-118, ADR-014).
+ * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022), sign-in/session settings
+ * (US-118, ADR-014) and waiting-list and background-job settings (US-128).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -45,9 +45,24 @@ export interface AuthConfig {
   trustProxy: boolean;
 }
 
+/** Waiting-list promotion settings (US-128). */
+export interface WaitlistConfig {
+  /** No promotion (and no joining) from `start_at − this` onward. 0 = until the class starts. */
+  promotionCutoffMinutes: number;
+  /** How often the `waitlist-maintenance` job runs. */
+  jobIntervalSeconds: number;
+}
+
+/** Background jobs (ADR-007). */
+export interface JobsConfig {
+  enabled: boolean;
+}
+
 export interface AppConfig {
   payments: PaymentsConfig;
   auth: AuthConfig;
+  waitlist: WaitlistConfig;
+  jobs: JobsConfig;
 }
 
 export class ConfigError extends Error {
@@ -285,6 +300,20 @@ function parseAuthConfig(env: NodeJS.ProcessEnv, problems: string[]): AuthConfig
   };
 }
 
+/** Waiting-list settings (US-128). Appends one entry to `problems` per invalid variable. */
+function parseWaitlistConfig(env: NodeJS.ProcessEnv, problems: string[]): WaitlistConfig {
+  return {
+    promotionCutoffMinutes: readInteger(env, 'WAITLIST_PROMOTION_CUTOFF_MINUTES', 0, 0, problems),
+    jobIntervalSeconds: readInteger(env, 'WAITLIST_JOB_INTERVAL_SECONDS', 60, 10, problems),
+  };
+}
+
+/** Background jobs run by default, except under `NODE_ENV=test`, where tests call the jobs directly. */
+function parseJobsConfig(env: NodeJS.ProcessEnv, problems: string[]): JobsConfig {
+  const testing = readText(env, 'NODE_ENV') === 'test';
+  return { enabled: readBoolean(env, 'JOBS_ENABLED', !testing, problems) };
+}
+
 /** Parses and validates the environment. Throws `ConfigError` listing every problem. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = envSchema.safeParse(pickPaymentEnv(env));
@@ -292,10 +321,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ? []
     : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
   const auth = parseAuthConfig(env, problems);
+  const waitlist = parseWaitlistConfig(env, problems);
+  const jobs = parseJobsConfig(env, problems);
   if (problems.length > 0 || !result.success) {
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data), auth };
+  return { payments: toPaymentsConfig(result.data), auth, waitlist, jobs };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */
