@@ -16,7 +16,6 @@ export default defineWorkspace([
       include: ['test/integration/**/*.test.ts'],
       environment: 'node',
       globalSetup: ['test/helpers/integration-global-setup.ts'],
-      fileParallelism: false,
       testTimeout: 15000,
     },
   },
