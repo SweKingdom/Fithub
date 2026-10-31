@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation for the payment (Stripe) settings (TK-131, ADR-022).
+ * Environment parsing and validation for the payment (Stripe) settings (TK-131, ADR-022)
+ * and the retry/hold policy for an unavailable Stripe (US-133).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -17,6 +18,10 @@ export type PaymentsConfig =
       stripeTimeoutMs: null;
       dropInPriceAmount: null;
       dropInCurrency: null;
+      retryBaseSeconds: null;
+      retryMaxAttempts: null;
+      holdMinutes: null;
+      jobIntervalSeconds: null;
     }
   | {
       enabled: true;
@@ -27,6 +32,10 @@ export type PaymentsConfig =
       stripeTimeoutMs: number;
       dropInPriceAmount: number;
       dropInCurrency: string;
+      retryBaseSeconds: number;
+      retryMaxAttempts: number;
+      holdMinutes: number;
+      jobIntervalSeconds: number;
     };
 
 export interface AppConfig {
@@ -47,6 +56,10 @@ const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
 const INTEGER_PATTERN = /^\d+$/;
 
 const DEFAULT_STRIPE_TIMEOUT_MS = 10000;
+const DEFAULT_RETRY_BASE_SECONDS = 60;
+const DEFAULT_RETRY_MAX_ATTEMPTS = 5;
+const DEFAULT_HOLD_MINUTES = 30;
+const DEFAULT_JOB_INTERVAL_SECONDS = 30;
 const REQUIRED_WHEN_ENABLED = 'required when PAYMENTS_ENABLED=true';
 
 const PAYMENT_VARIABLES = [
@@ -58,6 +71,10 @@ const PAYMENT_VARIABLES = [
   'STRIPE_TIMEOUT_MS',
   'DROP_IN_PRICE_AMOUNT',
   'DROP_IN_CURRENCY',
+  'PAYMENT_RETRY_BASE_SECONDS',
+  'PAYMENT_RETRY_MAX_ATTEMPTS',
+  'PAYMENT_HOLD_MINUTES',
+  'PAYMENT_JOB_INTERVAL_SECONDS',
 ] as const;
 
 const envSchema = z
@@ -70,6 +87,10 @@ const envSchema = z
     STRIPE_TIMEOUT_MS: z.string().optional(),
     DROP_IN_PRICE_AMOUNT: z.string().optional(),
     DROP_IN_CURRENCY: z.string().optional(),
+    PAYMENT_RETRY_BASE_SECONDS: z.string().optional(),
+    PAYMENT_RETRY_MAX_ATTEMPTS: z.string().optional(),
+    PAYMENT_HOLD_MINUTES: z.string().optional(),
+    PAYMENT_JOB_INTERVAL_SECONDS: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const fail = (variable: string, message: string): void => {
@@ -125,6 +146,11 @@ const envSchema = z
     checkFormat('DROP_IN_CURRENCY', env.DROP_IN_CURRENCY, CURRENCY_PATTERN);
     checkInteger('DROP_IN_PRICE_AMOUNT', env.DROP_IN_PRICE_AMOUNT, 1, 99999999, false);
     checkInteger('STRIPE_TIMEOUT_MS', env.STRIPE_TIMEOUT_MS, 1000, 30000, true);
+    // US-133: retry and hold policy (optional, defaults are assumptions pending the PO).
+    checkInteger('PAYMENT_RETRY_BASE_SECONDS', env.PAYMENT_RETRY_BASE_SECONDS, 10, 3600, true);
+    checkInteger('PAYMENT_RETRY_MAX_ATTEMPTS', env.PAYMENT_RETRY_MAX_ATTEMPTS, 1, 10, true);
+    checkInteger('PAYMENT_HOLD_MINUTES', env.PAYMENT_HOLD_MINUTES, 5, 720, true);
+    checkInteger('PAYMENT_JOB_INTERVAL_SECONDS', env.PAYMENT_JOB_INTERVAL_SECONDS, 10, 600, true);
 
     // Rule 4: both keys must come from the same Stripe mode.
     if (secretKey && publishableKey && modeOf(secretKey) !== modeOf(publishableKey)) {
@@ -149,6 +175,10 @@ function modeOf(key: string): StripeMode {
   return key.includes('_live_') ? 'live' : 'test';
 }
 
+function numberOr(value: string | undefined, fallback: number): number {
+  return value === undefined ? fallback : Number(value);
+}
+
 /** Blank values (e.g. `STRIPE_SECRET_KEY=` in a .env file) count as not set. */
 function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
   const picked: Record<string, string | undefined> = {};
@@ -171,6 +201,10 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
       stripeTimeoutMs: null,
       dropInPriceAmount: null,
       dropInCurrency: null,
+      retryBaseSeconds: null,
+      retryMaxAttempts: null,
+      holdMinutes: null,
+      jobIntervalSeconds: null,
     };
   }
   const secretKey = env.STRIPE_SECRET_KEY as string;
@@ -180,10 +214,13 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
     stripeSecretKey: secretKey,
     stripePublishableKey: env.STRIPE_PUBLISHABLE_KEY as string,
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET as string,
-    stripeTimeoutMs:
-      env.STRIPE_TIMEOUT_MS === undefined ? DEFAULT_STRIPE_TIMEOUT_MS : Number(env.STRIPE_TIMEOUT_MS),
+    stripeTimeoutMs: numberOr(env.STRIPE_TIMEOUT_MS, DEFAULT_STRIPE_TIMEOUT_MS),
     dropInPriceAmount: Number(env.DROP_IN_PRICE_AMOUNT),
     dropInCurrency: (env.DROP_IN_CURRENCY as string).toLowerCase(),
+    retryBaseSeconds: numberOr(env.PAYMENT_RETRY_BASE_SECONDS, DEFAULT_RETRY_BASE_SECONDS),
+    retryMaxAttempts: numberOr(env.PAYMENT_RETRY_MAX_ATTEMPTS, DEFAULT_RETRY_MAX_ATTEMPTS),
+    holdMinutes: numberOr(env.PAYMENT_HOLD_MINUTES, DEFAULT_HOLD_MINUTES),
+    jobIntervalSeconds: numberOr(env.PAYMENT_JOB_INTERVAL_SECONDS, DEFAULT_JOB_INTERVAL_SECONDS),
   };
 }
 
