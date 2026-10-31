@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022) and the
+ * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022), sign-in/session settings
+ * (US-118, ADR-014), waiting-list and background-job settings (US-128), no-show block settings (US-130) and the
  * booking cancellation cut-off (US-124).
  * Error messages name the variable and the reason, never the value.
  */
@@ -30,9 +31,54 @@ export type PaymentsConfig =
       dropInCurrency: string;
     };
 
+/** Sign-in, session and request-origin settings (US-118). */
+export interface AuthConfig {
+  /** Origin of the SPA; state-changing requests from another origin are refused. */
+  appOrigin: string;
+  sessionCookieSecure: boolean;
+  sessionIdleTimeoutMinutes: number;
+  sessionMaxAgeHours: number;
+  /** scrypt `N`: a power of two, at least 16384. */
+  scryptCost: number;
+  loginRateLimitMax: number;
+  loginRateLimitWindowMinutes: number;
+  /** True behind a reverse proxy, so `request.ip` is the client address. */
+  trustProxy: boolean;
+}
+
+/** Waiting-list promotion settings (US-128). */
+export interface WaitlistConfig {
+  /** No promotion (and no joining) from `start_at − this` onward. 0 = until the class starts. */
+  promotionCutoffMinutes: number;
+  /** How often the `waitlist-maintenance` job runs. */
+  jobIntervalSeconds: number;
+}
+
+export type NoShowWindowKind = 'rolling_days' | 'calendar_month';
+
+/** No-show block settings (US-130). Changes affect only future decisions; existing blocks are not recalculated. */
+export interface NoShowConfig {
+  /** Uncounted no-shows in the window that create a block. */
+  threshold: number;
+  window: NoShowWindowKind;
+  /** Length of the rolling window; used when `window` is `rolling_days`. */
+  windowDays: number;
+  /** How long a block lasts. */
+  blockDays: number;
+}
+
+/** Background jobs (ADR-007). */
+export interface JobsConfig {
+  enabled: boolean;
+}
+
 export interface AppConfig {
   payments: PaymentsConfig;
-  /** Members may cancel a booking until this many minutes before the class starts. */
+  auth: AuthConfig;
+  waitlist: WaitlistConfig;
+  noShow: NoShowConfig;
+  jobs: JobsConfig;
+  /** Members may cancel a booking until this many minutes before the class starts (US-124). */
   bookingCancelCutoffMinutes: number;
 }
 
@@ -54,7 +100,10 @@ const DEFAULT_BOOKING_CANCEL_CUTOFF_MINUTES = 120;
 const MAX_BOOKING_CANCEL_CUTOFF_MINUTES = 1440;
 const REQUIRED_WHEN_ENABLED = 'required when PAYMENTS_ENABLED=true';
 
-const ENV_VARIABLES = [
+const DEFAULT_APP_ORIGIN = 'http://localhost:5173';
+const MIN_SCRYPT_COST = 16384;
+
+const PAYMENT_VARIABLES = [
   'PAYMENTS_ENABLED',
   'STRIPE_SECRET_KEY',
   'STRIPE_PUBLISHABLE_KEY',
@@ -63,7 +112,6 @@ const ENV_VARIABLES = [
   'STRIPE_TIMEOUT_MS',
   'DROP_IN_PRICE_AMOUNT',
   'DROP_IN_CURRENCY',
-  'BOOKING_CANCEL_CUTOFF_MINUTES',
 ] as const;
 
 const envSchema = z
@@ -76,25 +124,11 @@ const envSchema = z
     STRIPE_TIMEOUT_MS: z.string().optional(),
     DROP_IN_PRICE_AMOUNT: z.string().optional(),
     DROP_IN_CURRENCY: z.string().optional(),
-    BOOKING_CANCEL_CUTOFF_MINUTES: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const fail = (variable: string, message: string): void => {
       ctx.addIssue({ code: 'custom', path: [variable], message });
     };
-
-    // Always checked, independent of the payments switch.
-    if (env.BOOKING_CANCEL_CUTOFF_MINUTES !== undefined) {
-      const cutoff = INTEGER_PATTERN.test(env.BOOKING_CANCEL_CUTOFF_MINUTES)
-        ? Number(env.BOOKING_CANCEL_CUTOFF_MINUTES)
-        : NaN;
-      if (!Number.isSafeInteger(cutoff) || cutoff > MAX_BOOKING_CANCEL_CUTOFF_MINUTES) {
-        fail(
-          'BOOKING_CANCEL_CUTOFF_MINUTES',
-          `must be an integer between 0 and ${MAX_BOOKING_CANCEL_CUTOFF_MINUTES}`,
-        );
-      }
-    }
 
     const paymentsEnabled = parseBoolean(env.PAYMENTS_ENABLED);
     if (paymentsEnabled === 'invalid') fail('PAYMENTS_ENABLED', 'must be true or false');
@@ -170,9 +204,9 @@ function modeOf(key: string): StripeMode {
 }
 
 /** Blank values (e.g. `STRIPE_SECRET_KEY=` in a .env file) count as not set. */
-function pickEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
+function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
   const picked: Record<string, string | undefined> = {};
-  for (const name of ENV_VARIABLES) {
+  for (const name of PAYMENT_VARIABLES) {
     const value = env[name];
     picked[name] = value === undefined || value.trim() === '' ? undefined : value.trim();
   }
@@ -207,20 +241,153 @@ function toPaymentsConfig(env: ParsedEnv): PaymentsConfig {
   };
 }
 
+function readText(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = env[name];
+  return value === undefined || value.trim() === '' ? undefined : value.trim();
+}
+
+function readBoolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean, problems: string[]): boolean {
+  const value = readText(env, name);
+  if (value === undefined) return fallback;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  problems.push(`${name}: must be true or false`);
+  return fallback;
+}
+
+/** Without `max` the value only has a lower bound. */
+function readInteger(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  min: number,
+  problems: string[],
+  max?: number,
+): number {
+  const value = readText(env, name);
+  if (value === undefined) return fallback;
+  const parsed = INTEGER_PATTERN.test(value) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < min || (max !== undefined && parsed > max)) {
+    problems.push(
+      max === undefined
+        ? `${name}: must be an integer of at least ${min}`
+        : `${name}: must be an integer between ${min} and ${max}`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+function readChoice<T extends string>(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  choices: readonly T[],
+  fallback: T,
+  problems: string[],
+): T {
+  const value = readText(env, name);
+  if (value === undefined) return fallback;
+  const match = choices.find((choice) => choice === value);
+  if (match === undefined) {
+    problems.push(`${name}: must be one of ${choices.join(', ')}`);
+    return fallback;
+  }
+  return match;
+}
+
+function isOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin === value;
+  } catch {
+    return false;
+  }
+}
+
+/** Sign-in and session settings (US-118). Appends one entry to `problems` per invalid variable. */
+function parseAuthConfig(env: NodeJS.ProcessEnv, problems: string[]): AuthConfig {
+  const production = readText(env, 'NODE_ENV') === 'production';
+
+  let appOrigin = readText(env, 'APP_ORIGIN');
+  if (appOrigin === undefined) {
+    if (production) problems.push('APP_ORIGIN: required when NODE_ENV=production');
+    appOrigin = DEFAULT_APP_ORIGIN;
+  } else if (!isOrigin(appOrigin)) {
+    problems.push('APP_ORIGIN: must be an origin such as https://app.example.com (no path, no trailing slash)');
+    appOrigin = DEFAULT_APP_ORIGIN;
+  }
+
+  const sessionCookieSecure = readBoolean(env, 'SESSION_COOKIE_SECURE', production, problems);
+  if (production && !sessionCookieSecure) {
+    problems.push('SESSION_COOKIE_SECURE: must be true when NODE_ENV=production');
+  }
+
+  let scryptCost = readInteger(env, 'AUTH_SCRYPT_COST', 131072, 1, problems);
+  if (scryptCost < MIN_SCRYPT_COST || (scryptCost & (scryptCost - 1)) !== 0) {
+    if (readText(env, 'AUTH_SCRYPT_COST') !== undefined) {
+      problems.push(`AUTH_SCRYPT_COST: must be a power of two of at least ${MIN_SCRYPT_COST}`);
+    }
+    scryptCost = 131072;
+  }
+
+  return {
+    appOrigin,
+    sessionCookieSecure,
+    sessionIdleTimeoutMinutes: readInteger(env, 'SESSION_IDLE_TIMEOUT_MINUTES', 720, 5, problems),
+    sessionMaxAgeHours: readInteger(env, 'SESSION_MAX_AGE_HOURS', 168, 1, problems),
+    scryptCost,
+    loginRateLimitMax: readInteger(env, 'LOGIN_RATE_LIMIT_MAX', 10, 1, problems),
+    loginRateLimitWindowMinutes: readInteger(env, 'LOGIN_RATE_LIMIT_WINDOW_MINUTES', 15, 1, problems),
+    trustProxy: readBoolean(env, 'TRUST_PROXY', false, problems),
+  };
+}
+
+/** Waiting-list settings (US-128). Appends one entry to `problems` per invalid variable. */
+function parseWaitlistConfig(env: NodeJS.ProcessEnv, problems: string[]): WaitlistConfig {
+  return {
+    promotionCutoffMinutes: readInteger(env, 'WAITLIST_PROMOTION_CUTOFF_MINUTES', 0, 0, problems),
+    jobIntervalSeconds: readInteger(env, 'WAITLIST_JOB_INTERVAL_SECONDS', 60, 10, problems),
+  };
+}
+
+/** No-show block settings (US-130). Defaults are provisional until the product owner confirms them. */
+function parseNoShowConfig(env: NodeJS.ProcessEnv, problems: string[]): NoShowConfig {
+  return {
+    threshold: readInteger(env, 'NO_SHOW_THRESHOLD', 3, 1, problems, 20),
+    window: readChoice(env, 'NO_SHOW_WINDOW', ['rolling_days', 'calendar_month'], 'rolling_days', problems),
+    windowDays: readInteger(env, 'NO_SHOW_WINDOW_DAYS', 30, 1, problems, 366),
+    blockDays: readInteger(env, 'NO_SHOW_BLOCK_DAYS', 7, 1, problems, 90),
+  };
+}
+
+/** Background jobs run by default, except under `NODE_ENV=test`, where tests call the jobs directly. */
+function parseJobsConfig(env: NodeJS.ProcessEnv, problems: string[]): JobsConfig {
+  const testing = readText(env, 'NODE_ENV') === 'test';
+  return { enabled: readBoolean(env, 'JOBS_ENABLED', !testing, problems) };
+}
+
 /** Parses and validates the environment. Throws `ConfigError` listing every problem. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const result = envSchema.safeParse(pickEnv(env));
-  if (!result.success) {
-    const problems = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  const result = envSchema.safeParse(pickPaymentEnv(env));
+  const problems: string[] = result.success
+    ? []
+    : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  const auth = parseAuthConfig(env, problems);
+  const waitlist = parseWaitlistConfig(env, problems);
+  const noShow = parseNoShowConfig(env, problems);
+  const jobs = parseJobsConfig(env, problems);
+  const bookingCancelCutoffMinutes = readInteger(
+    env,
+    'BOOKING_CANCEL_CUTOFF_MINUTES',
+    DEFAULT_BOOKING_CANCEL_CUTOFF_MINUTES,
+    0,
+    problems,
+    MAX_BOOKING_CANCEL_CUTOFF_MINUTES,
+  );
+  if (problems.length > 0 || !result.success) {
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return {
-    payments: toPaymentsConfig(result.data),
-    bookingCancelCutoffMinutes:
-      result.data.BOOKING_CANCEL_CUTOFF_MINUTES === undefined
-        ? DEFAULT_BOOKING_CANCEL_CUTOFF_MINUTES
-        : Number(result.data.BOOKING_CANCEL_CUTOFF_MINUTES),
-  };
+  return { payments: toPaymentsConfig(result.data), auth, waitlist, noShow, jobs, bookingCancelCutoffMinutes };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */

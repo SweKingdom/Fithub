@@ -1,9 +1,9 @@
-import type { Transaction } from 'kysely';
+import type { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
 import type { Database } from '../../src/db/schema.js';
-import { createEventBus, type BookingCancelled } from '../../src/shared/domain-events.js';
+import { DomainEventBus, type BookingCancelled } from '../../src/shared/domain-events.js';
 
-const trx = { fake: 'trx' } as unknown as Transaction<Database>;
+const trx = { fake: 'trx' } as unknown as Kysely<Database>;
 
 const event: BookingCancelled = {
   type: 'BookingCancelled',
@@ -15,9 +15,9 @@ const event: BookingCancelled = {
   cause: 'member_cancelled',
 };
 
-describe('domain event bus', () => {
+describe('BookingCancelled on the domain event bus (US-124)', () => {
   it('calls the handlers in subscription order with the transaction and the event', async () => {
-    const bus = createEventBus();
+    const bus = new DomainEventBus();
     const calls: string[] = [];
     bus.subscribe('BookingCancelled', async (receivedTrx, received) => {
       expect(receivedTrx).toBe(trx);
@@ -35,11 +35,11 @@ describe('domain event bus', () => {
   });
 
   it('publishes without handlers', async () => {
-    await expect(createEventBus().publish(trx, event)).resolves.toBeUndefined();
+    await expect(new DomainEventBus().publish(trx, event)).resolves.toBeUndefined();
   });
 
   it('propagates a handler error and stops the later handlers', async () => {
-    const bus = createEventBus();
+    const bus = new DomainEventBus();
     let secondCalled = false;
     bus.subscribe('BookingCancelled', async () => {
       throw new Error('handler failed');

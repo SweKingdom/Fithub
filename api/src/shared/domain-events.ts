@@ -1,8 +1,28 @@
-import type { Transaction } from 'kysely';
-import type { Database } from '../db/schema.js';
+import type { Kysely } from 'kysely';
+import type { AttendanceStatus, Database } from '../db/schema.js';
 
-/** A booking was cancelled (ADR-009, ADR-016). `cause` tells the consumers why. */
-export type BookingCancelled = {
+/**
+ * Raised inside the transaction that saved a booking's attendance (US-129, ADR-009). Subscribers run in that
+ * same transaction, so a failing subscriber rolls the attendance save back.
+ */
+export interface AttendanceRecorded {
+  type: 'AttendanceRecorded';
+  bookingId: string;
+  memberId: string;
+  classId: string;
+  classStartAt: Date;
+  previousAttendance: AttendanceStatus;
+  attendance: AttendanceStatus;
+  /** The staff member who recorded it; null when the system did. */
+  recordedBy: string | null;
+  recordedAt: Date;
+}
+
+/**
+ * A booking was cancelled (US-124, ADR-009, ADR-016). Raised inside the cancel transaction; `cause` tells the
+ * subscribers why (credit return, waiting-list promotion and refunds react to it in their own stories).
+ */
+export interface BookingCancelled {
   type: 'BookingCancelled';
   bookingId: string;
   classId: string;
@@ -10,38 +30,34 @@ export type BookingCancelled = {
   previousStatus: 'confirmed' | 'pending_payment';
   cancelledAt: Date;
   cause: 'member_cancelled' | 'class_cancelled';
-};
+}
 
-/** Later stories extend this union (e.g. AttendanceRecorded, US-129). */
-export type DomainEvent = BookingCancelled;
+/** Events other stories add join this union. */
+export type DomainEvent = AttendanceRecorded | BookingCancelled;
 
-export type DomainEventHandler<T extends DomainEvent['type']> = (
-  trx: Transaction<Database>,
+export type DomainEventType = DomainEvent['type'];
+
+export type DomainEventHandler<T extends DomainEventType> = (
+  trx: Kysely<Database>,
   event: Extract<DomainEvent, { type: T }>,
 ) => Promise<void>;
 
-export interface DomainEventBus {
-  subscribe<T extends DomainEvent['type']>(type: T, handler: DomainEventHandler<T>): void;
-  /**
-   * Runs the handlers of the event type one after the other, in subscription order, inside the
-   * caller's transaction. A handler error propagates, so the caller's transaction rolls back.
-   */
-  publish(trx: Transaction<Database>, event: DomainEvent): Promise<void>;
-}
+type AnyHandler = (trx: Kysely<Database>, event: DomainEvent) => Promise<void>;
 
-export function createEventBus(): DomainEventBus {
-  const handlers = new Map<DomainEvent['type'], DomainEventHandler<DomainEvent['type']>[]>();
+/** In-process event bus. Handlers of one event run one after the other, in subscription order. */
+export class DomainEventBus {
+  private readonly handlers = new Map<DomainEventType, AnyHandler[]>();
 
-  return {
-    subscribe(type, handler) {
-      const list = handlers.get(type) ?? [];
-      list.push(handler as DomainEventHandler<DomainEvent['type']>);
-      handlers.set(type, list);
-    },
-    async publish(trx, event) {
-      for (const handler of handlers.get(event.type) ?? []) {
-        await handler(trx, event);
-      }
-    },
-  };
+  subscribe<T extends DomainEventType>(type: T, handler: DomainEventHandler<T>): void {
+    const list = this.handlers.get(type) ?? [];
+    list.push(handler as AnyHandler);
+    this.handlers.set(type, list);
+  }
+
+  /** Calls every subscriber with the caller's transaction. The first error stops delivery and is rethrown. */
+  async publish(trx: Kysely<Database>, event: DomainEvent): Promise<void> {
+    for (const handler of this.handlers.get(event.type) ?? []) {
+      await handler(trx, event);
+    }
+  }
 }
