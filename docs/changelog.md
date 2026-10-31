@@ -2,4 +2,4 @@
 
 ## Unreleased
 
-- TK-119 Set up repository skeleton and CI pipeline with automated checks: npm workspaces (api, web), health endpoint, test-database guard, and CI workflow `CI / checks` running format, lint, typecheck, migrate, test and build.
+- {2026-10-31} — US-118 Sign-in and role-based access control: email and password sign-in, server-side sessions, role guards on `/api`, sign-out, sign-in brute-force limit, operator account commands.

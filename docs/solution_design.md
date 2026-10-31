@@ -541,3 +541,62 @@ Authoritative for Stripe payments. **Supersedes** the `payment` and `job` rows o
 **Assumptions to confirm with the PO** (all configurable or isolated in code): fixed price per class and club; hold 30 min and retry 1/2/4/8 min with 5 attempts; a decline is final (member rebooks); full refund on in-time cancel and class cancel; promoted drop-in members pay like direct bookings; notification channel (log only for now); Stripe receipt e-mails.
 
 **Risks.** (also in §10) Duplicate charge or refund; webhook before DB commit (not possible: the intent id is stored before the member gets the secret; fallback lookup by `metadata.paymentId`); `BookingCancelled` consumers added later (US-125) must ignore drop-in bookings without a paid payment; Stripe API version drift (pinned in `stripe-gateway.ts` and the endpoint setting); a member pays exactly as the hold expires (handled by late-payment refund, may surprise the member).
+
+## US-125 Class credits – refinement notes
+
+**Status:** Ready for Sprint. The PO delegated the credit rules to the team, so the assumptions in US-125 are accepted.
+
+**Module:** new `credits` module (policy, repository, service, handlers, errors). It owns `credit_balance` and `credit_transaction`. Bookings, waitlist, auth (`GET /api/me`) and the import CLI (US-136) use it.
+
+**Data model:**
+- `credit_balance(member_id PK, balance >= 0)`. A missing row means 0.
+- `credit_transaction`: append-only ledger. Reasons: `migration`, `booking`, `cancellation_refund`, `class_cancelled_refund`, `manual_adjustment`.
+- Unique partial indexes give one debit and at most one refund per booking, and one `migration` row per member.
+
+**API changes:**
+- New `409 NO_CREDITS` on booking and waitlist join.
+- `BookingDto.creditUsed`.
+- `GET /api/me` gains `creditBalance`.
+
+**ADR-017 · Credit ledger in its own module**
+- **Decision:** a ledger plus balance row, updated by a conditional `UPDATE … WHERE balance >= 1`. A `BookingCancelled` subscriber returns the credit inside the cancel transaction.
+- **Reason:** this is safe under concurrent bookings, idempotent on retries, and auditable. The balance equals the ledger sum.
+- **Alternatives:** a counter column only (no audit trail); `credits` inside `bookings` (US-136 would depend on bookings).
+- **Consequences:** this is the first production subscriber of the event bus. The lock order is extended to `gym_class` → `booking`/`waitlist_entry`/`payment` → `credit_balance` → `app_user`.
+
+**Risks:**
+- **No top-up path after go-live (high likelihood, high impact):** members run out of credits and cannot book. Mitigation: a follow-up story for top-up, to be raised with the PO. The `manual_adjustment` ledger reason is ready for it.
+- **Credits not imported before access (medium likelihood, high impact):** every regular member is refused with `NO_CREDITS`. Mitigation: US-136 is a release prerequisite.
+- **Promotion locks `credit_balance` before the waitlist claim (low likelihood, medium impact):** deadlock risk. Mitigation: the documented lock order, and no transaction waits on `credit_balance` while holding a `waitlist_entry` lock.
+
+## US-126 Class cancellation – refinement notes
+
+**Status:** refined, Ready for Sprint. Follows ADR-008 (flat errors, 409 for business conflicts), ADR-009 (in-transaction events), ADR-010 (lock order `gym_class` → child rows by `member_id`) and ADR-016.
+
+**API:** `POST /api/classes/:id/cancel`, body `{ reason? }`. Guards: `requireAuth`, `requireRole('instructor','club_manager')`. Policy function `canCancelClass` in `classes/policy.ts`, checked in the order club scope, then lead check, then status, then start time.
+
+**Data model:** `gym_class` gains `cancelled_at`, `cancelled_by` (FK → `app_user`, RESTRICT) and `cancellation_reason` varchar(500). CHECK `gym_class_cancelled_ck` ties `status = 'cancelled'` to both audit columns. `booking` and `waitlist_entry` are unchanged. The cancellation cause lives on the event, not on the row.
+
+**Contracts:**
+- `BookingCancelled.cause` is `'member_cancelled' | 'class_cancelled'`. It is required, so US-124's publisher and its test must be updated.
+- `NotificationEvent` gains `class_cancelled`. Payload: `{ memberId, classId, bookingId | null, waitlistEntryId | null }`. This is the full contract. The shorter `{ type, bookingId }` form in AC 4 only names the assertion keys, and tests should assert on the full payload.
+- The schedule item gains `canCancel`. `instructorId` stays internal.
+
+**Concurrency:**
+- Every competing writer (book, member cancel, waitlist join/leave, promotion) locks the `gym_class` row first.
+- `lockClassForUpdate` must return `id, club_id, instructor_id, status, start_at`.
+- Two parallel cancels serialise on that lock. The second sees `cancelled` and gets 409.
+- There is no promotion. Waiting entries are removed with a single UPDATE … RETURNING.
+
+**Post-commit:** `notifyClassCancelled` wraps each `notify` call in try/catch and logs failures. It logs `class.cancelled` with ids and counts only. Notification stays log-only (`LogNotifier`) until the channel is decided.
+
+**Decisions:**
+- Cancellation is final, with no reinstating.
+- Instructors may cancel only classes they lead. This lives in one policy function so it can be widened.
+- No production event handler is registered here. US-125 and US-134 will consume `cause = 'class_cancelled'`.
+
+**Risks:**
+- Paid drop-in bookings are not refunded until US-134. Likelihood is medium if US-132 ships first and impact is high. Mitigation: refund manually in Stripe, as listed in the manual steps.
+- If the `BookingCancelled` `cause` change is missed in US-124, the code won't typecheck. Impact is low.
+- Merge order of US-127 and US-126 is a coordination risk. Whichever merges second adds the waitlist step.
+- The PO has not confirmed the assumptions (answer: "use what you believe appropriate"). They are treated as accepted.

@@ -74,3 +74,34 @@ Operator-only CLI in the `imports` module (`api/src/modules/imports/`), run with
 **Configuration:** `DATABASE_URL` (required), `PORT` (3000), `NODE_ENV` (development), `LOG_LEVEL` (info). Validated in `api/src/config.ts`. Env files are loaded natively with `--env-file-if-exists` (no dotenv).
 
 **Open items:** README CI badge still uses placeholder `fithub/fithub` until the real repository owner and name are set. `package-lock.json` must be committed.
+
+## Authentication, sessions and roles (US-118)
+
+**Module:** `api/src/modules/auth/*`, `api/src/shared/errors.ts`, `api/src/shared/clock.ts`, `api/src/app.ts`.
+
+**Data model** (migration `0002_create_app_user_and_session`)
+- `app_user`: `id`, `email` (unique on `lower(email)`), `full_name`, `role` (`member`, `instructor`, `club_manager`), `member_type` (`regular`, `drop_in`; required for members only), `club_id` (FK `club`, required for staff), `password_hash` (scrypt, `NULL` = cannot sign in), `legacy_member_id` (unique, set by US-135), timestamps.
+- `user_session`: `id`, `user_id` (FK, cascade delete), `token_hash` (SHA-256, unique), `created_at`, `last_seen_at`, `expires_at`.
+- A session is valid when `expires_at > now` and `last_seen_at` is within `SESSION_IDLE_TIMEOUT_MINUTES`.
+
+**API**
+| Route | Access | Notes |
+|---|---|---|
+| `POST /api/auth/login` | public, rate-limited | 200 `MeDto` + cookie; 401 `INVALID_CREDENTIALS`; 429 `TOO_MANY_ATTEMPTS` |
+| `POST /api/auth/logout` | public | 204, deletes session, clears cookie |
+| `GET /api/me` | signed in | 200 `MeDto`, `Cache-Control: no-store` |
+
+All other `/api` routes require a session (`authHook`, opt out with `config: { public: true }`). Guards: `requireRole(roles, message?)` (preHandler) and `currentUser(request)`. `originGuard` rejects cross-origin state-changing requests.
+
+**Errors:** flat body `{ code, message, fieldErrors? }`. Validation → 400 `VALIDATION_ERROR`; unknown route → 404 `NOT_FOUND`; anything else → 500 `INTERNAL_ERROR` (stack logged, not returned).
+
+**Password and session security**
+- `scrypt$<N>$<r>$<p>$<salt>$<key>`; cost `AUTH_SCRYPT_COST` (default 2^17, tests 16384). Unknown emails are checked against a dummy hash.
+- Sign-in issues a new token and deletes the incoming one (no session fixation).
+- Logs record `auth.login_succeeded` (user id) and `auth.login_failed` (IP only). Passwords, tokens and cookies are redacted.
+
+**Configuration:** `APP_ORIGIN`, `SESSION_COOKIE_SECURE`, `SESSION_IDLE_TIMEOUT_MINUTES` (720), `SESSION_MAX_AGE_HOURS` (168), `AUTH_SCRYPT_COST` (131072), `LOGIN_RATE_LIMIT_MAX` (10), `LOGIN_RATE_LIMIT_WINDOW_MINUTES` (15), `TRUST_PROXY` (false).
+
+**Operations:** `npm run user:create -w api -- --email … --name "…" --role <role> [--club <CODE>] [--member-type regular|drop_in] --password-stdin` and `npm run user:set-password -w api -- --email … --password-stdin` (ends all sessions of the user).
+
+**Web:** `react-router-dom` routes, `AuthProvider` (`/api/me` on load), `RequireAuth`, `SignInPage` (`next` validated by `safeNext`), `AppHeader` with sign-out.
