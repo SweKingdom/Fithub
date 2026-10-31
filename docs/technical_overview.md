@@ -105,3 +105,38 @@ All other `/api` routes require a session (`authHook`, opt out with `config: { p
 **Operations:** `npm run user:create -w api -- --email … --name "…" --role <role> [--club <CODE>] [--member-type regular|drop_in] --password-stdin` and `npm run user:set-password -w api -- --email … --password-stdin` (ends all sessions of the user).
 
 **Web:** `react-router-dom` routes, `AuthProvider` (`/api/me` on load), `RequireAuth`, `SignInPage` (`next` validated by `safeNext`), `AppHeader` with sign-out.
+
+## Waiting list promotion (US-128)
+
+**Modules**
+- `api/src/modules/waitlist/promotion.ts`: `promoteNext(trx, classId, ctx)`, `checkPromotionEligibility`, `notifyPromotions`.
+- `api/src/modules/waitlist/maintenance.ts`: `runWaitlistMaintenance` (job `waitlist-maintenance`).
+- `api/src/modules/waitlist/repository.ts`: waiting list queries and state changes.
+- `api/src/notifications/notifier.ts`: `Notifier` port and `LogNotifier` default.
+- `api/src/jobs/runner.ts`: `startIntervalJobs`; one run at a time per job; errors logged.
+
+**Behaviour**
+- Promotion runs inside the transaction that frees the place, under the `gym_class` row lock. Triggers: booking cancel (US-124, pending wiring), payment failure/expiry (US-132/US-133, pending wiring), and the maintenance job.
+- Promotes at most one member per freed place, in `queue_seq` order. Skips members with an active booking (entry `removed`).
+- Regular member → booking `confirmed`. Drop-in member → `pending_payment`. Booking `source` = `waitlist`.
+- No promotion when `now >= start_at − WAITLIST_PROMOTION_CUTOFF_MINUTES`. The job then sets remaining `waiting` entries to `expired`.
+- Notifications are sent after commit. Errors are logged and do not undo a promotion.
+
+**Data**
+- `waitlist_entry` (provisional migration 0005): statuses `waiting`, `promoted`, `removed`, `expired`; `promoted_booking_id`, `queue_seq`, `ended_at`.
+- `booking.source` and `booking.booked_at` (provisional migration 0006). No other schema change.
+
+**Configuration**
+
+| Variable | Type | Default | Notes |
+|---|---|---|---|
+| `WAITLIST_PROMOTION_CUTOFF_MINUTES` | int ≥ 0 | `0` | Assumption; also used by US-127 |
+| `WAITLIST_JOB_INTERVAL_SECONDS` | int ≥ 10 | `60` | Maintenance job interval |
+| `JOBS_ENABLED` | boolean | `true` (`false` when `NODE_ENV=test`) | Starts interval jobs in `server.ts` |
+
+**Notification event**
+- `{ type: 'waitlist_promoted', memberId, bookingId, classId }`. `LogNotifier` writes `notification.waitlist_promoted` with ids only.
+
+**Deployment**
+- Run `npm run db:migrate -w api` after deploy. `allowUnorderedMigrations` is enabled in the migrator.
+- Drop-in promotion must not go live before US-132.

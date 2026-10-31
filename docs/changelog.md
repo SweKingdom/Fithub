@@ -2,4 +2,4 @@
 
 ## Unreleased
 
-- {2026-10-31} — US-118 Sign-in and role-based access control: email and password sign-in, server-side sessions, role guards on `/api`, sign-out, sign-in brute-force limit, operator account commands.
+- {2026-10-31} — US-128 Automatically give the first free place to the waiting list: first waiting member is booked into a freed place automatically, with expiry at cut-off and a safety-net maintenance job.
