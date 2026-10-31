@@ -1,9 +1,10 @@
 import { buildApp } from './app.js';
-import { loadConfig } from './config.js';
+import { ConfigError, describePayments, loadConfig } from './config.js';
 import { createDb } from './db/client.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  console.log(describePayments(config.payments));
   const db = createDb(config.DATABASE_URL);
   const app = buildApp({ config, db });
 
@@ -22,6 +23,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error('Failed to start the API', error);
+  if (error instanceof ConfigError) {
+    console.error(error.message);
+  } else {
+    console.error('Failed to start the API', error);
+  }
   process.exit(1);
 });
