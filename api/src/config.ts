@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation for the payment (Stripe) settings (TK-131, ADR-022).
+ * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022) and
+ * sign-in/session settings (US-118, ADR-014).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -29,8 +30,24 @@ export type PaymentsConfig =
       dropInCurrency: string;
     };
 
+/** Sign-in, session and request-origin settings (US-118). */
+export interface AuthConfig {
+  /** Origin of the SPA; state-changing requests from another origin are refused. */
+  appOrigin: string;
+  sessionCookieSecure: boolean;
+  sessionIdleTimeoutMinutes: number;
+  sessionMaxAgeHours: number;
+  /** scrypt `N`: a power of two, at least 16384. */
+  scryptCost: number;
+  loginRateLimitMax: number;
+  loginRateLimitWindowMinutes: number;
+  /** True behind a reverse proxy, so `request.ip` is the client address. */
+  trustProxy: boolean;
+}
+
 export interface AppConfig {
   payments: PaymentsConfig;
+  auth: AuthConfig;
 }
 
 export class ConfigError extends Error {
@@ -48,6 +65,9 @@ const INTEGER_PATTERN = /^\d+$/;
 
 const DEFAULT_STRIPE_TIMEOUT_MS = 10000;
 const REQUIRED_WHEN_ENABLED = 'required when PAYMENTS_ENABLED=true';
+
+const DEFAULT_APP_ORIGIN = 'http://localhost:5173';
+const MIN_SCRYPT_COST = 16384;
 
 const PAYMENT_VARIABLES = [
   'PAYMENTS_ENABLED',
@@ -187,14 +207,95 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
   };
 }
 
+function readText(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = env[name];
+  return value === undefined || value.trim() === '' ? undefined : value.trim();
+}
+
+function readBoolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean, problems: string[]): boolean {
+  const value = readText(env, name);
+  if (value === undefined) return fallback;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  problems.push(`${name}: must be true or false`);
+  return fallback;
+}
+
+function readInteger(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  min: number,
+  problems: string[],
+): number {
+  const value = readText(env, name);
+  if (value === undefined) return fallback;
+  const parsed = INTEGER_PATTERN.test(value) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < min) {
+    problems.push(`${name}: must be an integer of at least ${min}`);
+    return fallback;
+  }
+  return parsed;
+}
+
+function isOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin === value;
+  } catch {
+    return false;
+  }
+}
+
+/** Sign-in and session settings (US-118). Appends one entry to `problems` per invalid variable. */
+function parseAuthConfig(env: NodeJS.ProcessEnv, problems: string[]): AuthConfig {
+  const production = readText(env, 'NODE_ENV') === 'production';
+
+  let appOrigin = readText(env, 'APP_ORIGIN');
+  if (appOrigin === undefined) {
+    if (production) problems.push('APP_ORIGIN: required when NODE_ENV=production');
+    appOrigin = DEFAULT_APP_ORIGIN;
+  } else if (!isOrigin(appOrigin)) {
+    problems.push('APP_ORIGIN: must be an origin such as https://app.example.com (no path, no trailing slash)');
+    appOrigin = DEFAULT_APP_ORIGIN;
+  }
+
+  const sessionCookieSecure = readBoolean(env, 'SESSION_COOKIE_SECURE', production, problems);
+  if (production && !sessionCookieSecure) {
+    problems.push('SESSION_COOKIE_SECURE: must be true when NODE_ENV=production');
+  }
+
+  let scryptCost = readInteger(env, 'AUTH_SCRYPT_COST', 131072, 1, problems);
+  if (scryptCost < MIN_SCRYPT_COST || (scryptCost & (scryptCost - 1)) !== 0) {
+    if (readText(env, 'AUTH_SCRYPT_COST') !== undefined) {
+      problems.push(`AUTH_SCRYPT_COST: must be a power of two of at least ${MIN_SCRYPT_COST}`);
+    }
+    scryptCost = 131072;
+  }
+
+  return {
+    appOrigin,
+    sessionCookieSecure,
+    sessionIdleTimeoutMinutes: readInteger(env, 'SESSION_IDLE_TIMEOUT_MINUTES', 720, 5, problems),
+    sessionMaxAgeHours: readInteger(env, 'SESSION_MAX_AGE_HOURS', 168, 1, problems),
+    scryptCost,
+    loginRateLimitMax: readInteger(env, 'LOGIN_RATE_LIMIT_MAX', 10, 1, problems),
+    loginRateLimitWindowMinutes: readInteger(env, 'LOGIN_RATE_LIMIT_WINDOW_MINUTES', 15, 1, problems),
+    trustProxy: readBoolean(env, 'TRUST_PROXY', false, problems),
+  };
+}
+
 /** Parses and validates the environment. Throws `ConfigError` listing every problem. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = envSchema.safeParse(pickPaymentEnv(env));
-  if (!result.success) {
-    const problems = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  const problems: string[] = result.success
+    ? []
+    : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+  const auth = parseAuthConfig(env, problems);
+  if (problems.length > 0 || !result.success) {
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data) };
+  return { payments: toPaymentsConfig(result.data), auth };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */
