@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022), sign-in/session settings
- * (US-118, ADR-014) and waiting-list and background-job settings (US-128).
+ * (US-118, ADR-014), waiting-list and background-job settings (US-128) and no-show block settings (US-130).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -53,6 +53,19 @@ export interface WaitlistConfig {
   jobIntervalSeconds: number;
 }
 
+export type NoShowWindowKind = 'rolling_days' | 'calendar_month';
+
+/** No-show block settings (US-130). Changes affect only future decisions; existing blocks are not recalculated. */
+export interface NoShowConfig {
+  /** Uncounted no-shows in the window that create a block. */
+  threshold: number;
+  window: NoShowWindowKind;
+  /** Length of the rolling window; used when `window` is `rolling_days`. */
+  windowDays: number;
+  /** How long a block lasts. */
+  blockDays: number;
+}
+
 /** Background jobs (ADR-007). */
 export interface JobsConfig {
   enabled: boolean;
@@ -62,6 +75,7 @@ export interface AppConfig {
   payments: PaymentsConfig;
   auth: AuthConfig;
   waitlist: WaitlistConfig;
+  noShow: NoShowConfig;
   jobs: JobsConfig;
 }
 
@@ -236,21 +250,44 @@ function readBoolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean, pr
   return fallback;
 }
 
+/** Without `max` the value only has a lower bound. */
 function readInteger(
   env: NodeJS.ProcessEnv,
   name: string,
   fallback: number,
   min: number,
   problems: string[],
+  max?: number,
 ): number {
   const value = readText(env, name);
   if (value === undefined) return fallback;
   const parsed = INTEGER_PATTERN.test(value) ? Number(value) : NaN;
-  if (!Number.isSafeInteger(parsed) || parsed < min) {
-    problems.push(`${name}: must be an integer of at least ${min}`);
+  if (!Number.isSafeInteger(parsed) || parsed < min || (max !== undefined && parsed > max)) {
+    problems.push(
+      max === undefined
+        ? `${name}: must be an integer of at least ${min}`
+        : `${name}: must be an integer between ${min} and ${max}`,
+    );
     return fallback;
   }
   return parsed;
+}
+
+function readChoice<T extends string>(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  choices: readonly T[],
+  fallback: T,
+  problems: string[],
+): T {
+  const value = readText(env, name);
+  if (value === undefined) return fallback;
+  const match = choices.find((choice) => choice === value);
+  if (match === undefined) {
+    problems.push(`${name}: must be one of ${choices.join(', ')}`);
+    return fallback;
+  }
+  return match;
 }
 
 function isOrigin(value: string): boolean {
@@ -308,6 +345,16 @@ function parseWaitlistConfig(env: NodeJS.ProcessEnv, problems: string[]): Waitli
   };
 }
 
+/** No-show block settings (US-130). Defaults are provisional until the product owner confirms them. */
+function parseNoShowConfig(env: NodeJS.ProcessEnv, problems: string[]): NoShowConfig {
+  return {
+    threshold: readInteger(env, 'NO_SHOW_THRESHOLD', 3, 1, problems, 20),
+    window: readChoice(env, 'NO_SHOW_WINDOW', ['rolling_days', 'calendar_month'], 'rolling_days', problems),
+    windowDays: readInteger(env, 'NO_SHOW_WINDOW_DAYS', 30, 1, problems, 366),
+    blockDays: readInteger(env, 'NO_SHOW_BLOCK_DAYS', 7, 1, problems, 90),
+  };
+}
+
 /** Background jobs run by default, except under `NODE_ENV=test`, where tests call the jobs directly. */
 function parseJobsConfig(env: NodeJS.ProcessEnv, problems: string[]): JobsConfig {
   const testing = readText(env, 'NODE_ENV') === 'test';
@@ -322,11 +369,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
   const auth = parseAuthConfig(env, problems);
   const waitlist = parseWaitlistConfig(env, problems);
+  const noShow = parseNoShowConfig(env, problems);
   const jobs = parseJobsConfig(env, problems);
   if (problems.length > 0 || !result.success) {
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data), auth, waitlist, jobs };
+  return { payments: toPaymentsConfig(result.data), auth, waitlist, noShow, jobs };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */
