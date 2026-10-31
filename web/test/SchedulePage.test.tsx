@@ -62,6 +62,7 @@ function selectedClub(): string {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.me.clubId = null;
+  mocks.me.role = 'member';
   mocks.listClubs.mockResolvedValue(CLUBS);
   mocks.getSchedule.mockResolvedValue({ from: '', to: '', items: [] });
 });
@@ -145,5 +146,17 @@ describe('SchedulePage', () => {
     expect(await screen.findByRole('alert')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(mocks.getSchedule).toHaveBeenCalled());
+  });
+
+  it('US-120 AC 8: staff see the "New class" entry, members do not', async () => {
+    mocks.me.role = 'club_manager';
+    const staff = renderPage();
+    expect(await screen.findByRole('link', { name: 'New class' })).toBeTruthy();
+    staff.unmount();
+
+    mocks.me.role = 'member';
+    renderPage();
+    await screen.findByText('No classes scheduled in the next two weeks.');
+    expect(screen.queryByRole('link', { name: 'New class' })).toBeNull();
   });
 });

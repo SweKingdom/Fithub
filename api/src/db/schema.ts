@@ -1,6 +1,10 @@
 import type { Generated } from 'kysely';
 import type { AppUserTable, UserSessionTable } from '../modules/auth/db-types.js';
+import type { GymClassTable } from '../modules/classes/table.js';
 import type { WaitlistEntryTable } from '../modules/waitlist/table.js';
+
+/** `gym_class` (migration 0003) is declared in `modules/classes/table.ts`; re-exported for the other modules. */
+export type { GymClassTable };
 
 /** `club` (migration 0001, US-117). */
 export interface ClubTable {
@@ -10,19 +14,6 @@ export interface ClubTable {
   name: string;
   /** IANA time zone, e.g. `Europe/Stockholm`. */
   timezone: string;
-  created_at: Generated<Date>;
-}
-
-/** `gym_class` (migration 0003). */
-export interface GymClassTable {
-  id: Generated<string>;
-  club_id: string;
-  name: string;
-  start_at: Date;
-  duration_minutes: number;
-  capacity: number;
-  status: Generated<'scheduled' | 'cancelled'>;
-  instructor_id: string | null;
   created_at: Generated<Date>;
 }
 

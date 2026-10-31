@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { listClubs, type Club } from '../api/clubs';
 import { getSchedule, type ScheduleItem } from '../api/classes';
 import { ApiError } from '../api/client';
@@ -116,12 +116,14 @@ export function SchedulePage() {
   }
 
   const groups = state.status === 'ready' ? groupByClubDay(state.items) : [];
+  const isStaff = me?.role === 'instructor' || me?.role === 'club_manager';
 
   return (
     <main>
       <h1>Schedule</h1>
       {flash !== null && <p role="status">{flash}</p>}
       <BookingBlockBanner block={me?.bookingBlock ?? null} />
+      {isStaff && <Link to="/classes/new">New class</Link>}
 
       <label htmlFor="club-select">Club</label>
       <select

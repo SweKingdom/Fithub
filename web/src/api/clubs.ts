@@ -10,3 +10,13 @@ export interface Club {
 export function listClubs(): Promise<Club[]> {
   return apiFetch<Club[]>('/api/clubs');
 }
+
+export interface Instructor {
+  id: string;
+  fullName: string;
+}
+
+/** `GET /api/clubs/:clubId/instructors` (staff of that club only). */
+export function getInstructors(clubId: string): Promise<Instructor[]> {
+  return apiFetch<Instructor[]>(`/api/clubs/${encodeURIComponent(clubId)}/instructors`);
+}

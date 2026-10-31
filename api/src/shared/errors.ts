@@ -39,7 +39,8 @@ export function forbidden(message = "You don't have permission to do this."): Do
   return new DomainError('FORBIDDEN', message, 403);
 }
 
-const VALIDATION_MESSAGE = 'Some fields are missing or invalid.';
+const VALIDATION_MESSAGE = 'Please correct the highlighted fields.';
+const INVALID_JSON_MESSAGE = 'The request body is not valid JSON.';
 
 interface ValidationIssue {
   instancePath?: string;
@@ -51,8 +52,15 @@ function fieldFromPath(path: string): string {
   return path.replace(/^\//, '').split('/').filter(Boolean).join('.');
 }
 
+/** One entry per field: when a field fails several rules, the first message wins. */
 function validationBody(fieldErrors: FieldError[]): ErrorBody {
-  return { code: 'VALIDATION_ERROR', message: VALIDATION_MESSAGE, fieldErrors };
+  const seen = new Set<string>();
+  const unique = fieldErrors.filter((entry) => {
+    if (seen.has(entry.field)) return false;
+    seen.add(entry.field);
+    return true;
+  });
+  return { code: 'VALIDATION_ERROR', message: VALIDATION_MESSAGE, fieldErrors: unique };
 }
 
 function isValidationIssueList(value: unknown): value is ValidationIssue[] {
@@ -62,6 +70,15 @@ function isValidationIssueList(value: unknown): value is ValidationIssue[] {
 function statusOf(error: unknown): number | undefined {
   const status = (error as { statusCode?: unknown } | null)?.statusCode;
   return typeof status === 'number' ? status : undefined;
+}
+
+function isInvalidJson(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    error instanceof SyntaxError ||
+    code === 'FST_ERR_CTP_INVALID_JSON_BODY' ||
+    code === 'FST_ERR_CTP_EMPTY_JSON_BODY'
+  );
 }
 
 function toResponse(error: unknown): { status: number; body: ErrorBody; unexpected: boolean } {
@@ -97,7 +114,8 @@ function toResponse(error: unknown): { status: number; body: ErrorBody; unexpect
     };
   }
   if (status === 400) {
-    return { status: 400, body: { code: 'VALIDATION_ERROR', message: VALIDATION_MESSAGE }, unexpected: false };
+    const message = isInvalidJson(error) ? INVALID_JSON_MESSAGE : VALIDATION_MESSAGE;
+    return { status: 400, body: { code: 'VALIDATION_ERROR', message }, unexpected: false };
   }
   if (status !== undefined && status >= 400 && status < 500) {
     return {

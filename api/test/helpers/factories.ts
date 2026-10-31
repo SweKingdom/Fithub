@@ -57,9 +57,13 @@ export interface CreateClassFields {
   durationMinutes?: number;
   status?: 'scheduled' | 'cancelled';
   instructorId?: string;
+  /** Defaults to a new club manager of the class's club. */
+  createdBy?: string;
 }
 
 export async function createClass(db: Kysely<Database>, fields: CreateClassFields) {
+  const createdBy =
+    fields.createdBy ?? (await createUser(db, { role: 'club_manager', clubId: fields.clubId })).id;
   return db
     .insertInto('gym_class')
     .values({
@@ -70,6 +74,7 @@ export async function createClass(db: Kysely<Database>, fields: CreateClassField
       duration_minutes: fields.durationMinutes ?? 45,
       status: fields.status ?? 'scheduled',
       instructor_id: fields.instructorId ?? null,
+      created_by: createdBy,
     })
     .returningAll()
     .executeTakeFirstOrThrow();

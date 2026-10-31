@@ -35,3 +35,35 @@ export function getSchedule({ clubId, from, to }: ScheduleParams): Promise<Sched
   if (to) query.set('to', to);
   return apiFetch<ScheduleResponse>(`/api/classes?${query.toString()}`);
 }
+
+export interface CreateClassPayload {
+  clubId: string;
+  name: string;
+  startAt: string;
+  durationMinutes: number;
+  capacity: number;
+  instructorId?: string | null;
+}
+
+/** Staff-facing class returned by `POST /api/classes`. */
+export interface ClassDto {
+  id: string;
+  clubId: string;
+  name: string;
+  startAt: string;
+  durationMinutes: number;
+  capacity: number;
+  freePlaces: number;
+  status: 'scheduled' | 'cancelled';
+  instructorId: string | null;
+  instructorName: string | null;
+  createdBy: string;
+  createdAt: string;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+}
+
+/** `POST /api/classes`. Rejects with `ApiError` (carries `fieldErrors` on 400). */
+export function createClass(payload: CreateClassPayload): Promise<ClassDto> {
+  return apiFetch<ClassDto>('/api/classes', { method: 'POST', body: payload });
+}

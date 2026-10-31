@@ -10,6 +10,7 @@ import { createBlockService, type BlockService } from './modules/attendance/bloc
 import { authHook, originGuard } from './modules/auth/hooks.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { classRoutes } from './modules/classes/routes.js';
+import { instructorRoutes } from './modules/clubs/instructors.js';
 import { clubRoutes } from './modules/clubs/routes.js';
 import { LogNotifier, type Notifier } from './notifications/notifier.js';
 import { healthRoutes } from './routes/health.js';
@@ -103,6 +104,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       api.addHook('onRequest', authHook({ db, clock, session: config.auth }));
       await api.register(authRoutes({ db, clock, config: config.auth, blocks: blockService }));
       await api.register(clubRoutes(db));
+      await api.register(instructorRoutes({ db }));
       await api.register(classRoutes({ db, clock }));
     },
     { prefix: '/api' },
