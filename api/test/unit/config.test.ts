@@ -64,6 +64,10 @@ describe('payments config', () => {
       ['STRIPE_TIMEOUT_MS', '999', 'must be an integer between 1000 and 30000'],
       ['STRIPE_TIMEOUT_MS', '30001', 'must be an integer between 1000 and 30000'],
       ['STRIPE_TIMEOUT_MS', 'fast', 'must be an integer between 1000 and 30000'],
+      ['PAYMENT_REFUND_RETRY_CAP_SECONDS', '59', 'must be an integer between 60 and 86400'],
+      ['PAYMENT_REFUND_RETRY_CAP_SECONDS', '86401', 'must be an integer between 60 and 86400'],
+      ['PAYMENT_REFUND_RETRY_CAP_SECONDS', '1.5', 'must be an integer between 60 and 86400'],
+      ['PAYMENT_REFUND_RETRY_CAP_SECONDS', 'hourly', 'must be an integer between 60 and 86400'],
       ['STRIPE_LIVE_MODE_ALLOWED', 'yes', 'must be true or false'],
     ])('rejects malformed %s=%s', (variable, value, reason) => {
       expect(messageOf({ ...validEnv, [variable]: value })).toBe(
@@ -94,7 +98,11 @@ describe('payments config', () => {
     });
 
     it('accepts a complete valid environment and normalises the currency', () => {
-      const { payments } = loadConfig({ ...validEnv, STRIPE_TIMEOUT_MS: '5000' });
+      const { payments } = loadConfig({
+        ...validEnv,
+        STRIPE_TIMEOUT_MS: '5000',
+        PAYMENT_REFUND_RETRY_CAP_SECONDS: '600',
+      });
       expect(payments).toEqual({
         enabled: true,
         mode: 'test',
@@ -104,6 +112,7 @@ describe('payments config', () => {
         stripeTimeoutMs: 5000,
         dropInPriceAmount: 1500,
         dropInCurrency: 'eur',
+        refundRetryCapSeconds: 600,
       });
     });
 
@@ -111,6 +120,28 @@ describe('payments config', () => {
       const { payments } = loadConfig({ ...validEnv, STRIPE_SECRET_KEY: 'rk_test_fake' });
       expect(payments.enabled && payments.stripeTimeoutMs).toBe(10000);
       expect(payments.mode).toBe('test');
+    });
+  });
+
+  describe('US-134 AC 4: refund retry cap', () => {
+    it('defaults PAYMENT_REFUND_RETRY_CAP_SECONDS to 3600', () => {
+      const { payments } = loadConfig(validEnv);
+      expect(payments.refundRetryCapSeconds).toBe(3600);
+    });
+
+    it.each(['60', '86400'])('accepts the boundary value %s', (value) => {
+      const { payments } = loadConfig({ ...validEnv, PAYMENT_REFUND_RETRY_CAP_SECONDS: value });
+      expect(payments.refundRetryCapSeconds).toBe(Number(value));
+    });
+
+    it('treats a blank value as not set', () => {
+      const { payments } = loadConfig({ ...validEnv, PAYMENT_REFUND_RETRY_CAP_SECONDS: ' ' });
+      expect(payments.refundRetryCapSeconds).toBe(3600);
+    });
+
+    it('ignores an invalid value when payments are off', () => {
+      const { payments } = loadConfig({ PAYMENT_REFUND_RETRY_CAP_SECONDS: '5' });
+      expect(payments.refundRetryCapSeconds).toBeNull();
     });
   });
 
@@ -161,6 +192,7 @@ describe('payments config', () => {
       stripeTimeoutMs: null,
       dropInPriceAmount: null,
       dropInCurrency: null,
+      refundRetryCapSeconds: null,
     };
 
     it('starts with an empty environment and payments off', () => {
