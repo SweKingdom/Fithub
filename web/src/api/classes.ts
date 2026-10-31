@@ -12,6 +12,8 @@ export interface ScheduleItem {
   freePlaces: number;
   status: 'scheduled' | 'cancelled';
   instructorName: string | null;
+  /** True only for staff who may cancel this class right now (US-126). */
+  canCancel: boolean;
   myBookingStatus: 'none' | 'confirmed' | 'pending_payment' | 'waiting';
   myBooking: { id: string; status: 'confirmed' | 'pending_payment' } | null;
   myWaitlist: { entryId: string; position: number } | null;

@@ -217,4 +217,39 @@ describe('GET /api/classes (US-121)', () => {
     expect(body).not.toContain(instructor.id);
     expect(body).not.toContain(member.id);
   });
+
+  it('US-126: canCancel is true only for staff who may cancel an upcoming scheduled class', async () => {
+    const { club, cookie: memberCookie } = await setup();
+    const otherClub = await createClub(db, { name: 'Club B', timezone: 'Europe/Stockholm' });
+    const lead = await createUser(db, { role: 'instructor', clubId: club.id });
+    const colleague = await createUser(db, { role: 'instructor', clubId: club.id });
+    const manager = await createUser(db, { role: 'club_manager', clubId: club.id });
+    const foreignManager = await createUser(db, { role: 'club_manager', clubId: otherClub.id });
+    const led = await createClass(db, { clubId: club.id, startAt: at(HOUR), name: 'Led', instructorId: lead.id });
+    const cancelled = await createClass(db, {
+      clubId: club.id,
+      startAt: at(2 * HOUR),
+      name: 'Cancelled',
+      instructorId: lead.id,
+      status: 'cancelled',
+    });
+
+    const canCancelBy = async (user: { id: string; role: 'instructor' | 'club_manager' | 'member'; clubId: string }) => {
+      const res = await get('', await signInAs(app, user));
+      const byId = new Map<string, boolean>(
+        res.json().items.map((i: { id: string; canCancel: boolean }) => [i.id, i.canCancel]),
+      );
+      return { led: byId.get(led.id), cancelled: byId.get(cancelled.id) };
+    };
+
+    expect(await canCancelBy(manager)).toEqual({ led: true, cancelled: false });
+    expect(await canCancelBy(lead)).toEqual({ led: true, cancelled: false });
+    expect((await canCancelBy(colleague)).led).toBe(false);
+    expect((await canCancelBy(foreignManager)).led).toBe(false);
+
+    const memberRes = await get('', memberCookie);
+    expect(memberRes.json().items.every((i: { canCancel: boolean }) => i.canCancel === false)).toBe(true);
+    expect(memberRes.body).not.toContain('instructorId');
+    expect(memberRes.body).not.toContain(lead.id);
+  });
 });

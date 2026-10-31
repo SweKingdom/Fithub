@@ -46,6 +46,7 @@ export async function findSchedule(db: Kysely<Database>, params: FindSchedulePar
       'gc.duration_minutes',
       'gc.capacity',
       'gc.status',
+      'gc.instructor_id',
       'i.full_name as instructor_name',
       sql<number>`COALESCE(bc.active_count, 0)`.as('active_count'),
       'mb.id as my_booking_id',
