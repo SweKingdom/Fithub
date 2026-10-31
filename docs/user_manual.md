@@ -33,3 +33,40 @@ No change from TK-119. This story is a developer-facing setup task and does not 
 - **Drop-in members:** the booking shows as pending payment. Pay in the app to keep the place. If payment is not completed in time, the place is released and the next member is booked.
 - Waiting list entries close when the class starts. Remaining members are not booked into that class.
 - Waiting list places are checked about once a minute, so a freed place may take up to one minute to be filled.
+
+## How to record attendance for a class
+
+Use this to mark which booked members attended a class and which did not show up. You need to be an instructor or club manager of the club that runs the class.
+
+**When you can record attendance**
+
+| Time | What you can do |
+|---|---|
+| Before the class starts | Nothing. The Attendance page says when it opens. |
+| From the class start until 24 hours after the class ends | Instructors and club managers can record and change attendance. |
+| More than 24 hours after the class ends | Instructors see the list read-only. Only the club manager can correct it. |
+
+The 24-hour period can be changed by your administrator.
+
+**Steps**
+
+1. Sign in and open **Schedule**.
+2. Find the class. Once it has started, the class card shows an **Attendance** link. Cancelled classes have no link.
+3. Select **Attendance**. The list shows every member with a confirmed booking, in alphabetical order. Members who cancelled or have not paid are not listed.
+4. For each member, select **Attended** or **No-show**. A member with no choice yet is not recorded.
+5. Optional: select **Mark all attended** to set every member without a choice to **Attended**. Then change the members who did not come to **No-show**.
+6. Check the summary at the top: **Booked**, **Attended**, **No-show** and **Not recorded**.
+7. Select **Save**. The message "Attendance saved." confirms the change. Only the rows you changed are saved.
+
+**Tips**
+
+- Saving the same choices again does nothing.
+- The top of the page shows who recorded each entry ("Recorded by …") once it is saved.
+- If you see "Attendance opens when the class starts at …", come back after the class has started.
+- If you see "Attendance is closed. Ask your club manager to correct it.", contact your club manager. Club managers can still change the entries.
+
+**Warnings**
+
+- A save is all or nothing. If one entry is not valid, nothing is saved. Fix the highlighted row and save again.
+- A recorded no-show may affect the member's future bookings (no-show block rule).
+- You cannot reset a recorded entry to "not recorded" in the app.

@@ -140,3 +140,49 @@ All other `/api` routes require a session (`authHook`, opt out with `config: { p
 **Deployment**
 - Run `npm run db:migrate -w api` after deploy. `allowUnorderedMigrations` is enabled in the migrator.
 - Drop-in promotion must not go live before US-132.
+
+## Attendance and no-show recording (US-129)
+
+Staff record attendance per confirmed booking. Source: fithub-requirements.pdf §1, §2.2, §5; ADR-008 to ADR-012.
+
+**Modules** (`api/src/modules/attendance/`)
+
+| File | Purpose |
+|---|---|
+| `window.ts` | Pure. `attendanceWindow(classRow, now, editWindowHours)` returns `opensAt` (= `start_at`), `closesAt` (= `start_at + duration_minutes + ATTENDANCE_EDIT_WINDOW_HOURS`) and `state` (`not_open`, `open`, `closed`). `canEditAttendance(user, window)`. |
+| `repository.ts` | Roster read, class-scoped booking lock, update of one booking, query of classes due for the auto no-show sweep. |
+| `service.ts` | `getAttendance`, `recordAttendance` (one transaction). |
+| `auto-no-show.ts` | `runAutoNoShowSweep`, `startAutoNoShowSweeper`. |
+| `routes.ts` | `GET` and `PUT /api/classes/:classId/attendance`, guarded by `requireRole('instructor','club_manager')`. |
+
+**Data model:** `booking` gains `attendance_recorded_by` (uuid, FK `app_user.id`, ON DELETE RESTRICT, nullable) and `attendance_recorded_at` (timestamptz, nullable). CHECK `booking_attendance_recorded_ck`: `(attendance = 'unknown') = (attendance_recorded_at IS NULL)`. Migration `0021_add_booking_attendance_audit`.
+
+**Save flow (`PUT`)**, one transaction:
+1. Lock the class row (`FOR UPDATE`). Missing → 404 `CLASS_NOT_FOUND`.
+2. `assertStaffOfClass` (club scope) → 403.
+3. Status `cancelled` → 409 `CLASS_CANCELLED`.
+4. Window: `not_open` → 409 `ATTENDANCE_NOT_OPEN`; `closed` and not club manager → 409 `ATTENDANCE_CLOSED`.
+5. Lock requested bookings of this class ordered by `member_id`. Any id not `confirmed` in this class → 400 `VALIDATION_ERROR` on `entries[i].bookingId`; nothing written.
+6. For each changed row: update `attendance`, `attendance_recorded_by`, `attendance_recorded_at`, `updated_at`; publish `AttendanceRecorded`.
+
+**Event:** `AttendanceRecorded` { `bookingId`, `memberId`, `classId`, `classStartAt`, `previousAttendance`, `attendance`, `recordedBy`, `recordedAt` }. Published in the same transaction (ADR-009). The no-show block handler (US-130) subscribes; its failure rolls back the save.
+
+**Auto no-show sweep:** runs only when `ATTENDANCE_AUTO_NO_SHOW_ENABLED=true`. Every `ATTENDANCE_SWEEP_INTERVAL_MINUTES` the sweeper picks up to 50 scheduled classes past their window that still have `unknown` confirmed bookings. Per class it locks with `FOR UPDATE SKIP LOCKED`, sets `no_show` with `attendance_recorded_by = null`, and publishes one event per booking. Only `unknown` rows are touched, so repeated runs are harmless. The sweeper starts in `server.ts` only; tests call `runAutoNoShowSweep` directly.
+
+**Staff schedule (US-121 rework):** `GET /api/classes` returns, to instructors and club managers only, started classes of their own club until `start + duration + ATTENDANCE_EDIT_WINDOW_HOURS`. It does not apply to members, to other clubs, or when the caller passes `from`. `ScheduleDeps.attendanceEditWindowHours` supplies the window; `app.ts` passes `config.attendance.editWindowHours`.
+
+**Configuration: attendance**
+
+| Variable | Type | Default | Notes |
+|---|---|---|---|
+| `ATTENDANCE_EDIT_WINDOW_HOURS` | int 1–168 | `24` | Hours after class end during which instructors may record. |
+| `ATTENDANCE_AUTO_NO_SHOW_ENABLED` | boolean | `false` | Switch on only after product owner confirmation. |
+| `ATTENDANCE_SWEEP_INTERVAL_MINUTES` | int 1–1440 | `15` | Sweep frequency. |
+
+Documented in `.env.example`. Loaded by `config.attendance` in `config.ts`.
+
+**Security:** role and club scope on both routes. `recordedBy` comes from the session only. Booking ids are accepted only when they belong to the class in the URL. The roster returns member names, never e-mail addresses.
+
+**Performance:** ≤ ~40 confirmed bookings per class. One save = 1 class lock, 1 select, ≤ 40 updates. Target p95 < 300 ms.
+
+**Open items:** integration tests (`attendance`, `bookings.access`, `classes.schedule`) must be run against PostgreSQL before release. Auto no-show stays off until the product owner confirms it.
