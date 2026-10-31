@@ -1,24 +1,23 @@
-# US-123 — Test report (iteration 4)
-**Verdict:** ❌ Changes requested · **Tester:** Cuélebre · **Date:** 2026-10-31
+# US-123 — Test report (iteration 7)
+**Verdict:** ✅ Approved · **Tester:** Cuélebre · **Date:** 2026-10-31
 
 ## Summary
 | Check | Result | Evidence |
 |---|---|---|
-| AC 1 Own upcoming bookings | ❌ | No bookings module on branch |
-| AC 2 Past bookings / validation | ❌ | Not implemented |
-| AC 3 Other members' bookings hidden | ❌ | access.ts and route missing |
-| AC 4 Other members' bookings cannot be changed | ❌ | Cancel route missing |
-| AC 5 Staff scope | ❌ | Roster route missing |
-| AC 6 Access test matrix | ❌ | bookings.access.test.ts missing |
-| AC 7 UI | ❌ | No web workspace |
-| Checks gate | ❌ | lint exits 1: Missing script "lint". Typecheck passes. |
+| run_checks (typecheck, lint, api unit, web, build) | ✅ | all exit 0 |
+| AC 1 Own upcoming bookings | ✅ | repository.ts `memberScope`; bookings.list test |
+| AC 2 Past bookings, invalid period | ✅ | zod enum gives 400; tested |
+| AC 3 Other members' bookings hidden | ✅ | owner filter in SQL; identical 404 body tested |
+| AC 4 Cannot cancel others' bookings | ✅ | 404 before any write; row stays confirmed |
+| AC 5 Staff scope | ✅ | `assertStaffOfClass`, `requireRole`, `findBookingForClub` |
+| AC 6 Access matrix | ✅ | `describe.each(MATRIX)` with before/after table snapshot |
+| AC 7 UI | ✅ | MyBookingsPage and AppHeader web tests |
 
-## Checks
-The branch holds only `api/src/config.ts`, `api/src/server.ts`, `api/test/unit/config.test.ts` and docs. None of the files in the story's Technical Specification exist, so no AC can be met. I did not capture screenshots because there is no feature to show.
-
-## What to do
-- Every AC (1–7): the story is not implemented. Rebase or merge the branch onto a base that contains TK-119, US-117, US-118, US-120 and US-122. Then build US-123 as specified.
-- Checks gate: add the `lint` script (TK-119 scope), and make `npm run typecheck`, `lint`, `test:unit -w api`, `test -w web` and `build` pass.
+Verification was by static review of the delivered files and the passing `run_checks`. No screenshots were captured.
 
 ## Not tested
-None. Every AC failed because the delivery is missing.
+- The integration tests (`bookings.list`, `bookings.access`) need the test database, so they were not executed. I revied them by reading, and their assertions match the ACs.
+
+## Notes
+- The cancel route is a placeholder that US-124 replaces. It is correctly restricted to members.
+- Error-message wording differs from the spec table (codes and statuses match). This is documented in the story.
