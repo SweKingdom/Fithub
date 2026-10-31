@@ -186,3 +186,35 @@ Documented in `.env.example`. Loaded by `config.attendance` in `config.ts`.
 **Performance:** ≤ ~40 confirmed bookings per class. One save = 1 class lock, 1 select, ≤ 40 updates. Target p95 < 300 ms.
 
 **Open items:** integration tests (`attendance`, `bookings.access`, `classes.schedule`) must be run against PostgreSQL before release. Auto no-show stays off until the product owner confirms it.
+
+## No-show booking block (US-130)
+
+**Data model**
+- `booking_block`: `id`, `member_id` (FK `app_user`, RESTRICT), `reason` (CHECK `no_show` | `manual`), `starts_at`, `ends_at` (CHECK `ends_at >= starts_at`), `no_show_count`, `lifted_at`, `created_at`. Index `booking_block_member_ends_idx (member_id, ends_at)`.
+- `booking.no_show_block_id` (FK `booking_block`, SET NULL). Partial index `booking_uncounted_no_show_idx (member_id) WHERE attendance = 'no_show' AND no_show_block_id IS NULL`.
+- Migration `0021_create_booking_block`. Also adds `booking.attendance` (IF NOT EXISTS) and re-creates its CHECK; verify against the US-129 migration on merge.
+
+**Configuration**
+
+| Variable | Type | Default | Notes |
+|---|---|---|---|
+| `NO_SHOW_THRESHOLD` | int 1–20 | `3` | provisional |
+| `NO_SHOW_WINDOW` | `rolling_days` \| `calendar_month` | `rolling_days` | provisional |
+| `NO_SHOW_WINDOW_DAYS` | int 1–366 | `30` | used with `rolling_days` |
+| `NO_SHOW_BLOCK_DAYS` | int 1–90 | `7` | |
+
+Changing values affects only future decisions; existing blocks are not recalculated.
+
+**Behaviour**
+- `block-service.onAttendanceRecorded` handles `AttendanceRecorded` in the same transaction as the attendance save (subscribed in `app.ts`). It locks the member row, then creates a block at the threshold or lifts a block when a linked no-show is corrected to `attended`.
+- `assertNotBlocked(trx, memberId)` throws `DomainError('BOOKING_BLOCKED', …, 409)`. Message date uses `Intl.DateTimeFormat('en-GB', …)` in the home club's time zone.
+- Call sites: `bookClass` step 3 and the waiting-list join, after class checks. Not yet on this branch (US-122, US-127).
+
+**API**
+- `GET /api/me` and the sign-in response include `bookingBlock: { endsAt, reason, noShowCount, message } | null`. Always `null` for staff.
+- `POST /api/classes/:classId/bookings` and `POST /api/classes/:id/waitlist` return `409 BOOKING_BLOCKED` (pending US-122 / US-127).
+
+**Web**
+- `BookingBlockBanner` (`role="status"`) renders from `me.bookingBlock` on the schedule page. Its element id is `BOOKING_BLOCK_BANNER_ID`; Book and Join buttons reference it via `aria-describedby`.
+
+**Security:** the member id comes from the session. Block data is returned only to the member via `/api/me`. No staff route for blocks.
