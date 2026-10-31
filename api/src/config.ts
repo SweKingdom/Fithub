@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation for the payment (Stripe) settings (TK-131, ADR-022).
+ * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022) and the
+ * waiting-list promotion cut-off (US-127/US-128).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -29,8 +30,14 @@ export type PaymentsConfig =
       dropInCurrency: string;
     };
 
+export interface WaitlistConfig {
+  /** Minutes before class start at which joining closes and promotion stops. 0 = at class start. */
+  promotionCutoffMinutes: number;
+}
+
 export interface AppConfig {
   payments: PaymentsConfig;
+  waitlist: WaitlistConfig;
 }
 
 export class ConfigError extends Error {
@@ -47,9 +54,10 @@ const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
 const INTEGER_PATTERN = /^\d+$/;
 
 const DEFAULT_STRIPE_TIMEOUT_MS = 10000;
+const DEFAULT_WAITLIST_PROMOTION_CUTOFF_MINUTES = 0;
 const REQUIRED_WHEN_ENABLED = 'required when PAYMENTS_ENABLED=true';
 
-const PAYMENT_VARIABLES = [
+const CONFIG_VARIABLES = [
   'PAYMENTS_ENABLED',
   'STRIPE_SECRET_KEY',
   'STRIPE_PUBLISHABLE_KEY',
@@ -58,6 +66,7 @@ const PAYMENT_VARIABLES = [
   'STRIPE_TIMEOUT_MS',
   'DROP_IN_PRICE_AMOUNT',
   'DROP_IN_CURRENCY',
+  'WAITLIST_PROMOTION_CUTOFF_MINUTES',
 ] as const;
 
 const envSchema = z
@@ -70,11 +79,18 @@ const envSchema = z
     STRIPE_TIMEOUT_MS: z.string().optional(),
     DROP_IN_PRICE_AMOUNT: z.string().optional(),
     DROP_IN_CURRENCY: z.string().optional(),
+    WAITLIST_PROMOTION_CUTOFF_MINUTES: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     const fail = (variable: string, message: string): void => {
       ctx.addIssue({ code: 'custom', path: [variable], message });
     };
+
+    // Waiting list: always checked, independent of the payments switch.
+    const cutoff = env.WAITLIST_PROMOTION_CUTOFF_MINUTES;
+    if (cutoff !== undefined && !(INTEGER_PATTERN.test(cutoff) && Number.isSafeInteger(Number(cutoff)))) {
+      fail('WAITLIST_PROMOTION_CUTOFF_MINUTES', 'must be a whole number of minutes, 0 or more');
+    }
 
     const paymentsEnabled = parseBoolean(env.PAYMENTS_ENABLED);
     if (paymentsEnabled === 'invalid') fail('PAYMENTS_ENABLED', 'must be true or false');
@@ -137,7 +153,7 @@ const envSchema = z
     }
   });
 
-type PaymentEnv = z.infer<typeof envSchema>;
+type ConfigEnv = z.infer<typeof envSchema>;
 
 function parseBoolean(value: string | undefined): boolean | 'invalid' {
   if (value === undefined || value === 'false') return false;
@@ -150,9 +166,9 @@ function modeOf(key: string): StripeMode {
 }
 
 /** Blank values (e.g. `STRIPE_SECRET_KEY=` in a .env file) count as not set. */
-function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
+function pickEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
   const picked: Record<string, string | undefined> = {};
-  for (const name of PAYMENT_VARIABLES) {
+  for (const name of CONFIG_VARIABLES) {
     const value = env[name];
     picked[name] = value === undefined || value.trim() === '' ? undefined : value.trim();
   }
@@ -160,7 +176,7 @@ function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefin
 }
 
 /** Builds the typed config from an already validated environment. */
-function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
+function toPaymentsConfig(env: ConfigEnv): PaymentsConfig {
   if (env.PAYMENTS_ENABLED !== 'true') {
     return {
       enabled: false,
@@ -187,14 +203,23 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
   };
 }
 
+function toWaitlistConfig(env: ConfigEnv): WaitlistConfig {
+  return {
+    promotionCutoffMinutes:
+      env.WAITLIST_PROMOTION_CUTOFF_MINUTES === undefined
+        ? DEFAULT_WAITLIST_PROMOTION_CUTOFF_MINUTES
+        : Number(env.WAITLIST_PROMOTION_CUTOFF_MINUTES),
+  };
+}
+
 /** Parses and validates the environment. Throws `ConfigError` listing every problem. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const result = envSchema.safeParse(pickPaymentEnv(env));
+  const result = envSchema.safeParse(pickEnv(env));
   if (!result.success) {
     const problems = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data) };
+  return { payments: toPaymentsConfig(result.data), waitlist: toWaitlistConfig(result.data) };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */
