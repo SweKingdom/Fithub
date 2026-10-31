@@ -1,17 +1,32 @@
+import { buildApp } from './app.js';
 import { ConfigError, describePayments, loadConfig } from './config.js';
+import { createDb } from './db/client.js';
 
-/** Process entry point: validates the configuration and logs the payment state once. */
-function main(): void {
-  try {
-    const config = loadConfig();
-    console.log(describePayments(config.payments));
-  } catch (error) {
-    if (error instanceof ConfigError) {
-      console.error(error.message);
-      process.exit(1);
-    }
-    throw error;
+async function main(): Promise<void> {
+  const config = loadConfig();
+  console.log(describePayments(config.payments));
+  const db = createDb(config.DATABASE_URL);
+  const app = buildApp({ config, db });
+
+  const shutdown = async (): Promise<void> => {
+    await app.close();
+    await db.destroy();
+    process.exit(0);
+  };
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      void shutdown();
+    });
   }
+
+  await app.listen({ port: config.PORT, host: '0.0.0.0' });
 }
 
-main();
+main().catch((error: unknown) => {
+  if (error instanceof ConfigError) {
+    console.error(error.message);
+  } else {
+    console.error('Failed to start the API', error);
+  }
+  process.exit(1);
+});

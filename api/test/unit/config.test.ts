@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError, describePayments, loadConfig } from '../../src/config.js';
 
+const DATABASE_URL = 'postgres://u:p@localhost:5432/db';
+
+const paymentsOff = {
+  enabled: false,
+  mode: null,
+  stripeSecretKey: null,
+  stripePublishableKey: null,
+  stripeWebhookSecret: null,
+  stripeTimeoutMs: null,
+  dropInPriceAmount: null,
+  dropInCurrency: null,
+};
+
 const validEnv = {
   PAYMENTS_ENABLED: 'true',
   STRIPE_SECRET_KEY: 'sk_test_fake',
@@ -10,15 +23,66 @@ const validEnv = {
   DROP_IN_CURRENCY: 'EUR',
 };
 
+/** Loads a config with a valid DATABASE_URL so the payment settings can be tested on their own. */
+function load(env: NodeJS.ProcessEnv): ReturnType<typeof loadConfig> {
+  return loadConfig({ DATABASE_URL, ...env });
+}
+
 function messageOf(env: NodeJS.ProcessEnv): string {
   try {
-    loadConfig(env);
+    load(env);
   } catch (error) {
     expect(error).toBeInstanceOf(ConfigError);
     return (error as Error).message;
   }
   throw new Error('expected loadConfig to throw');
 }
+
+describe('loadConfig', () => {
+  it('applies defaults for optional variables', () => {
+    expect(loadConfig({ DATABASE_URL })).toEqual({
+      DATABASE_URL,
+      PORT: 3000,
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'info',
+      payments: paymentsOff,
+    });
+  });
+
+  it('reads provided values', () => {
+    const config = loadConfig({ DATABASE_URL, PORT: '8080', NODE_ENV: 'test', LOG_LEVEL: 'warn' });
+    expect(config).toMatchObject({ PORT: 8080, NODE_ENV: 'test', LOG_LEVEL: 'warn' });
+  });
+
+  it('throws when DATABASE_URL is missing', () => {
+    expect(() => loadConfig({})).toThrow(/^Invalid configuration: DATABASE_URL/);
+  });
+
+  it('throws when PORT is not a number', () => {
+    expect(() => loadConfig({ DATABASE_URL, PORT: 'abc' })).toThrow(
+      /^Invalid configuration: PORT/,
+    );
+  });
+
+  it('throws when PORT is out of range', () => {
+    expect(() => loadConfig({ DATABASE_URL, PORT: '70000' })).toThrow(
+      /^Invalid configuration: PORT/,
+    );
+  });
+
+  it('reports core and payment problems together', () => {
+    const message = (() => {
+      try {
+        loadConfig({ PAYMENTS_ENABLED: 'yes' });
+      } catch (error) {
+        return (error as Error).message;
+      }
+      return '';
+    })();
+    expect(message).toMatch(/^Invalid configuration: DATABASE_URL/);
+    expect(message).toContain('PAYMENTS_ENABLED: must be true or false');
+  });
+});
 
 describe('payments config', () => {
   describe('AC 2: fails fast when payments are on', () => {
@@ -31,7 +95,9 @@ describe('payments config', () => {
     ])('rejects a missing %s', (variable) => {
       const env: NodeJS.ProcessEnv = { ...validEnv };
       delete env[variable];
-      expect(messageOf(env)).toBe(`Invalid configuration: ${variable}: required when PAYMENTS_ENABLED=true`);
+      expect(messageOf(env)).toBe(
+        `Invalid configuration: ${variable}: required when PAYMENTS_ENABLED=true`,
+      );
     });
 
     it('treats a blank value as missing', () => {
@@ -94,7 +160,7 @@ describe('payments config', () => {
     });
 
     it('accepts a complete valid environment and normalises the currency', () => {
-      const { payments } = loadConfig({ ...validEnv, STRIPE_TIMEOUT_MS: '5000' });
+      const { payments } = load({ ...validEnv, STRIPE_TIMEOUT_MS: '5000' });
       expect(payments).toEqual({
         enabled: true,
         mode: 'test',
@@ -108,7 +174,7 @@ describe('payments config', () => {
     });
 
     it('defaults STRIPE_TIMEOUT_MS to 10000 and accepts restricted keys', () => {
-      const { payments } = loadConfig({ ...validEnv, STRIPE_SECRET_KEY: 'rk_test_fake' });
+      const { payments } = load({ ...validEnv, STRIPE_SECRET_KEY: 'rk_test_fake' });
       expect(payments.enabled && payments.stripeTimeoutMs).toBe(10000);
       expect(payments.mode).toBe('test');
     });
@@ -137,7 +203,7 @@ describe('payments config', () => {
     });
 
     it('accepts live keys with the flag and reports mode live', () => {
-      const { payments } = loadConfig({ ...liveEnv, STRIPE_LIVE_MODE_ALLOWED: 'true' });
+      const { payments } = load({ ...liveEnv, STRIPE_LIVE_MODE_ALLOWED: 'true' });
       expect(payments.mode).toBe('live');
     });
 
@@ -146,29 +212,22 @@ describe('payments config', () => {
         'Invalid configuration: STRIPE_PUBLISHABLE_KEY: mode does not match STRIPE_SECRET_KEY',
       );
       expect(
-        messageOf({ ...validEnv, STRIPE_SECRET_KEY: 'sk_live_x', STRIPE_LIVE_MODE_ALLOWED: 'true' }),
+        messageOf({
+          ...validEnv,
+          STRIPE_SECRET_KEY: 'sk_live_x',
+          STRIPE_LIVE_MODE_ALLOWED: 'true',
+        }),
       ).toBe('Invalid configuration: STRIPE_PUBLISHABLE_KEY: mode does not match STRIPE_SECRET_KEY');
     });
   });
 
   describe('AC 4: disabled by default', () => {
-    const paymentsOff = {
-      enabled: false,
-      mode: null,
-      stripeSecretKey: null,
-      stripePublishableKey: null,
-      stripeWebhookSecret: null,
-      stripeTimeoutMs: null,
-      dropInPriceAmount: null,
-      dropInCurrency: null,
-    };
-
-    it('starts with an empty environment and payments off', () => {
-      expect(loadConfig({}).payments).toEqual(paymentsOff);
+    it('starts with only DATABASE_URL set and payments off', () => {
+      expect(load({}).payments).toEqual(paymentsOff);
     });
 
     it('ignores Stripe variables, even malformed ones, when PAYMENTS_ENABLED=false', () => {
-      const { payments } = loadConfig({
+      const { payments } = load({
         PAYMENTS_ENABLED: 'false',
         STRIPE_SECRET_KEY: 'abc',
         DROP_IN_PRICE_AMOUNT: '0',
@@ -178,25 +237,25 @@ describe('payments config', () => {
     });
 
     it('ignores a malformed STRIPE_LIVE_MODE_ALLOWED when PAYMENTS_ENABLED=false', () => {
-      expect(loadConfig({ PAYMENTS_ENABLED: 'false', STRIPE_LIVE_MODE_ALLOWED: 'yes' }).payments).toEqual(
+      expect(load({ PAYMENTS_ENABLED: 'false', STRIPE_LIVE_MODE_ALLOWED: 'yes' }).payments).toEqual(
         paymentsOff,
       );
-      expect(loadConfig({ STRIPE_LIVE_MODE_ALLOWED: 'yes' }).payments).toEqual(paymentsOff);
+      expect(load({ STRIPE_LIVE_MODE_ALLOWED: 'yes' }).payments).toEqual(paymentsOff);
     });
 
     it('logs payments.enabled=false when off', () => {
-      expect(describePayments(loadConfig({}).payments)).toBe('payments.enabled=false');
+      expect(describePayments(load({}).payments)).toBe('payments.enabled=false');
     });
 
     it('logs payments.enabled=true with the mode and never a key when on', () => {
-      const line = describePayments(loadConfig(validEnv).payments);
+      const line = describePayments(load(validEnv).payments);
       expect(line).toBe('payments.enabled=true mode=test');
       expect(line).not.toContain('fake');
     });
 
     it('logs mode=live for live keys', () => {
       const line = describePayments(
-        loadConfig({
+        load({
           ...validEnv,
           STRIPE_SECRET_KEY: 'sk_live_x',
           STRIPE_PUBLISHABLE_KEY: 'pk_live_x',

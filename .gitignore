@@ -1,5 +1,8 @@
 .DS_Store
 node_modules/
+dist/
+coverage/
 .env
+*.log
 api/import-data/
 api/import-output/

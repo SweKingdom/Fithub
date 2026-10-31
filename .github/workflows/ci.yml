@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fithub
+          POSTGRES_PASSWORD: fithub
+          POSTGRES_DB: fithub_test
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U fithub" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://fithub:fithub@localhost:5432/fithub_test
+      NODE_ENV: test
+      TZ: UTC
+      JOBS_ENABLED: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Format
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Migrate test DB
+        run: npm run db:migrate
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: api/coverage
+          if-no-files-found: ignore
+          retention-days: 7

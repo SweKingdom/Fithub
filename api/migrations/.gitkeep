@@ -1,0 +1,1 @@
+Migrations are named NNNN_snake_case.ts and export up(db) and down(db).

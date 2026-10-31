@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation for the payment (Stripe) settings (TK-131, ADR-022).
- * Error messages name the variable and the reason, never the value.
+ * Environment parsing and validation: core settings (TK-119) and the payment (Stripe) settings
+ * (TK-131, ADR-022). Error messages name the variable and the reason, never the value.
  */
 
 export type StripeMode = 'test' | 'live';
@@ -29,9 +29,14 @@ export type PaymentsConfig =
       dropInCurrency: string;
     };
 
-export interface AppConfig {
-  payments: PaymentsConfig;
-}
+const coreSchema = z.object({
+  DATABASE_URL: z.string().url(),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+});
+
+export type Config = z.infer<typeof coreSchema> & { payments: PaymentsConfig };
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -60,7 +65,7 @@ const PAYMENT_VARIABLES = [
   'DROP_IN_CURRENCY',
 ] as const;
 
-const envSchema = z
+const paymentEnvSchema = z
   .object({
     PAYMENTS_ENABLED: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().optional(),
@@ -86,7 +91,11 @@ const envSchema = z
     if (liveAllowed === 'invalid') fail('STRIPE_LIVE_MODE_ALLOWED', 'must be true or false');
 
     // Rules 2 and 3: presence, then format. The value is never echoed.
-    const checkFormat = (variable: string, value: string | undefined, pattern: RegExp): string | null => {
+    const checkFormat = (
+      variable: string,
+      value: string | undefined,
+      pattern: RegExp,
+    ): string | null => {
       if (value === undefined) {
         fail(variable, REQUIRED_WHEN_ENABLED);
         return null;
@@ -137,7 +146,7 @@ const envSchema = z
     }
   });
 
-type PaymentEnv = z.infer<typeof envSchema>;
+type PaymentEnv = z.infer<typeof paymentEnvSchema>;
 
 function parseBoolean(value: string | undefined): boolean | 'invalid' {
   if (value === undefined || value === 'false') return false;
@@ -159,7 +168,7 @@ function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefin
   return picked;
 }
 
-/** Builds the typed config from an already validated environment. */
+/** Builds the typed payments config from an already validated environment. */
 function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
   if (env.PAYMENTS_ENABLED !== 'true') {
     return {
@@ -181,23 +190,35 @@ function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
     stripePublishableKey: env.STRIPE_PUBLISHABLE_KEY as string,
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET as string,
     stripeTimeoutMs:
-      env.STRIPE_TIMEOUT_MS === undefined ? DEFAULT_STRIPE_TIMEOUT_MS : Number(env.STRIPE_TIMEOUT_MS),
+      env.STRIPE_TIMEOUT_MS === undefined
+        ? DEFAULT_STRIPE_TIMEOUT_MS
+        : Number(env.STRIPE_TIMEOUT_MS),
     dropInPriceAmount: Number(env.DROP_IN_PRICE_AMOUNT),
     dropInCurrency: (env.DROP_IN_CURRENCY as string).toLowerCase(),
   };
 }
 
+function describeIssue(issue: z.ZodIssue): string {
+  return `${issue.path.join('.') || 'unknown'}: ${issue.message}`;
+}
+
 /** Parses and validates the environment. Throws `ConfigError` listing every problem. */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const result = envSchema.safeParse(pickPaymentEnv(env));
-  if (!result.success) {
-    const problems = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const core = coreSchema.safeParse(env);
+  const payments = paymentEnvSchema.safeParse(pickPaymentEnv(env));
+  if (!core.success || !payments.success) {
+    const problems = [
+      ...(core.success ? [] : core.error.issues.map(describeIssue)),
+      ...(payments.success ? [] : payments.error.issues.map(describeIssue)),
+    ];
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data) };
+  return { ...core.data, payments: toPaymentsConfig(payments.data) };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */
 export function describePayments(payments: PaymentsConfig): string {
-  return payments.enabled ? `payments.enabled=true mode=${payments.mode}` : 'payments.enabled=false';
+  return payments.enabled
+    ? `payments.enabled=true mode=${payments.mode}`
+    : 'payments.enabled=false';
 }
