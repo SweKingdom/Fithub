@@ -1,0 +1,4 @@
+[
+  { "code": "EXAMPLE-1", "name": "FitHub Example One", "timezone": "Europe/Stockholm" },
+  { "code": "EXAMPLE-2", "name": "FitHub Example Two", "timezone": "Europe/Stockholm" }
+]

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { createClass } from '../api/classes';
-import { getClubs, getInstructors, type Club, type Instructor } from '../api/clubs';
+import { getInstructors, listClubs, type Club, type Instructor } from '../api/clubs';
 import { useAuth } from '../lib/auth';
 import {
   CLASS_FORM_FIELDS,
@@ -80,7 +80,7 @@ function NewClassForm() {
       return;
     }
     let cancelled = false;
-    Promise.all([getClubs(), isManager ? getInstructors(clubId) : Promise.resolve([])])
+    Promise.all([listClubs(), isManager ? getInstructors(clubId) : Promise.resolve([])])
       .then(([clubs, list]) => {
         if (cancelled) return;
         setClub(clubs.find((candidate) => candidate.id === clubId) ?? null);
@@ -135,7 +135,7 @@ function NewClassForm() {
       navigate(`/schedule?clubId=${encodeURIComponent(clubId)}`, { state: { flash: 'Class created.' } });
     } catch (error) {
       setSubmitting(false);
-      if (error instanceof ApiError && error.fieldErrors && error.fieldErrors.length > 0) {
+      if (error instanceof ApiError && error.fieldErrors.length > 0) {
         const serverErrors: ClassFormErrors = {};
         for (const { field, message } of error.fieldErrors) {
           const known = CLASS_FORM_FIELDS.find((candidate) => candidate === field);

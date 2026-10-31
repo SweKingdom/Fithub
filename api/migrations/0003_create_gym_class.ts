@@ -1,6 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 
-/** Creates `gym_class` (US-120). Status is `text` + CHECK, not a PostgreSQL enum (ADR-008). */
+/** Creates `gym_class` (US-120, read by the schedule of US-121). Status is `text` + CHECK, not a PostgreSQL enum (ADR-008). */
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .createTable('gym_class')

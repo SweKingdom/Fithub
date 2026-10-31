@@ -1,12 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// `ApiError`, `useAuth` and `getClubs` come from US-117/US-118 (`api/client.ts`, `lib/auth.tsx`, `api/clubs.ts`).
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   createClass: vi.fn(),
-  getClubs: vi.fn(),
+  listClubs: vi.fn(),
   getInstructors: vi.fn(),
   me: { current: null as unknown },
 }));
@@ -15,7 +13,7 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.navigate }));
 vi.mock('../src/lib/auth', () => ({ useAuth: () => ({ me: mocks.me.current }) }));
 vi.mock('../src/api/classes', () => ({ createClass: mocks.createClass }));
 vi.mock('../src/api/clubs', () => ({
-  getClubs: mocks.getClubs,
+  listClubs: mocks.listClubs,
   getInstructors: mocks.getInstructors,
 }));
 
@@ -35,83 +33,98 @@ function signInAs(role: 'instructor' | 'club_manager' | 'member') {
   };
 }
 
-async function fillValid(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText('Name'), 'Spinning 45');
-  await user.type(screen.getByLabelText('Date'), '2099-11-02');
-  await user.type(screen.getByLabelText('Start time'), '18:00');
-  await user.type(screen.getByLabelText('Duration (minutes)'), '45');
-  await user.type(screen.getByLabelText('Max places'), '20');
+function type(label: string, value: string) {
+  fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
+
+function fillValid() {
+  type('Name', 'Spinning 45');
+  type('Date', '2099-11-02');
+  type('Start time', '18:00');
+  type('Duration (minutes)', '45');
+  type('Max places', '20');
+}
+
+const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Create class' }));
 
 describe('NewClassPage', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.getClubs.mockResolvedValue([{ id: CLUB_ID, name: 'FitHub Södermalm', timezone: 'Europe/Stockholm' }]);
+    vi.resetAllMocks();
+    mocks.listClubs.mockResolvedValue([{ id: CLUB_ID, name: 'FitHub Södermalm', timezone: 'Europe/Stockholm' }]);
     mocks.getInstructors.mockResolvedValue([{ id: INSTRUCTOR_ID, fullName: 'Ida Instructor' }]);
   });
 
   it('AC 8: members see the "not allowed" page and no form', () => {
     signInAs('member');
     render(<NewClassPage />);
-    expect(screen.getByText('You are not allowed to create classes.')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+    expect(screen.getByText('You are not allowed to create classes.')).toBeTruthy();
+    expect(screen.queryByLabelText('Name')).toBeNull();
   });
 
   it('AC 8: an instructor sees the club read-only and no instructor picker', async () => {
     signInAs('instructor');
     render(<NewClassPage />);
-    expect(await screen.findByLabelText('Name')).toBeInTheDocument();
-    expect(screen.getByText('FitHub Södermalm')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Instructor')).not.toBeInTheDocument();
+    expect(screen.getByText('Loading…')).toBeTruthy();
+    await screen.findByLabelText('Name');
+    expect(screen.getByText('FitHub Södermalm')).toBeTruthy();
+    expect(screen.queryByLabelText('Instructor')).toBeNull();
     expect(mocks.getInstructors).not.toHaveBeenCalled();
   });
 
   it('AC 8: a club manager gets the instructor picker with "No instructor yet"', async () => {
     signInAs('club_manager');
     render(<NewClassPage />);
-    const picker = await screen.findByLabelText('Instructor');
-    expect(picker).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'No instructor yet' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Ida Instructor' })).toBeInTheDocument();
+    await screen.findByLabelText('Instructor');
+    expect(screen.getByRole('option', { name: 'No instructor yet' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Ida Instructor' })).toBeTruthy();
   });
 
   it('AC 8: an empty submit shows messages next to the fields and focuses the first invalid one', async () => {
     signInAs('instructor');
-    const user = userEvent.setup();
     render(<NewClassPage />);
     await screen.findByLabelText('Name');
-    await user.click(screen.getByRole('button', { name: 'Create class' }));
+    submit();
 
-    expect(screen.getByText('A class must have a name.')).toBeInTheDocument();
-    expect(screen.getByText('Enter a valid start date and time.')).toBeInTheDocument();
-    expect(screen.getByText('The duration must be a whole number of minutes greater than 0.')).toBeInTheDocument();
-    expect(screen.getByText('Max places must be a whole number.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Name')).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByLabelText('Name')).toHaveFocus();
+    expect(screen.getByText('A class must have a name.')).toBeTruthy();
+    expect(screen.getByText('Enter a valid start date and time.')).toBeTruthy();
+    expect(screen.getByText('The duration must be a whole number of minutes greater than 0.')).toBeTruthy();
+    expect(screen.getByText('Max places must be a whole number.')).toBeTruthy();
+    const name = screen.getByLabelText('Name');
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(name.getAttribute('aria-describedby')).toBe('name-error');
+    expect(document.activeElement).toBe(name);
     expect(mocks.createClass).not.toHaveBeenCalled();
   });
 
   it('AC 8: zero places shows the server-aligned message', async () => {
     signInAs('instructor');
-    const user = userEvent.setup();
     render(<NewClassPage />);
     await screen.findByLabelText('Name');
-    await fillValid(user);
-    await user.clear(screen.getByLabelText('Max places'));
-    await user.type(screen.getByLabelText('Max places'), '0');
-    await user.click(screen.getByRole('button', { name: 'Create class' }));
-    expect(screen.getByText('A class must have at least one place.')).toBeInTheDocument();
+    fillValid();
+    type('Max places', '0');
+    submit();
+    expect(screen.getByText('A class must have at least one place.')).toBeTruthy();
+    expect(mocks.createClass).not.toHaveBeenCalled();
+  });
+
+  it('AC 8: a start time in the past is rejected before the request', async () => {
+    signInAs('instructor');
+    render(<NewClassPage />);
+    await screen.findByLabelText('Name');
+    fillValid();
+    type('Date', '2001-01-01');
+    submit();
+    expect(screen.getByText('The start time must be in the future.')).toBeTruthy();
     expect(mocks.createClass).not.toHaveBeenCalled();
   });
 
   it('AC 8: a valid submit sends UTC time and numbers, then redirects with the flash message', async () => {
     signInAs('instructor');
     mocks.createClass.mockResolvedValue({ id: 'c1' });
-    const user = userEvent.setup();
     render(<NewClassPage />);
     await screen.findByLabelText('Name');
-    await fillValid(user);
-    await user.click(screen.getByRole('button', { name: 'Create class' }));
+    fillValid();
+    submit();
 
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalled());
     expect(mocks.createClass).toHaveBeenCalledWith({
@@ -129,11 +142,10 @@ describe('NewClassPage', () => {
   it('AC 8: a club manager sends null when no instructor is chosen', async () => {
     signInAs('club_manager');
     mocks.createClass.mockResolvedValue({ id: 'c1' });
-    const user = userEvent.setup();
     render(<NewClassPage />);
     await screen.findByLabelText('Instructor');
-    await fillValid(user);
-    await user.click(screen.getByRole('button', { name: 'Create class' }));
+    fillValid();
+    submit();
     await waitFor(() => expect(mocks.createClass).toHaveBeenCalled());
     expect(mocks.createClass).toHaveBeenCalledWith(expect.objectContaining({ instructorId: null }));
   });
@@ -141,13 +153,12 @@ describe('NewClassPage', () => {
   it('AC 8: the button is disabled and reads "Creating…" while submitting', async () => {
     signInAs('instructor');
     mocks.createClass.mockReturnValue(new Promise(() => undefined));
-    const user = userEvent.setup();
     render(<NewClassPage />);
     await screen.findByLabelText('Name');
-    await fillValid(user);
-    await user.click(screen.getByRole('button', { name: 'Create class' }));
-    const button = await screen.findByRole('button', { name: 'Creating…' });
-    expect(button).toBeDisabled();
+    fillValid();
+    submit();
+    const button = (await screen.findByRole('button', { name: 'Creating…' })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 
   it('AC 8: server field errors are shown next to their field and focus moves there', async () => {
@@ -157,26 +168,36 @@ describe('NewClassPage', () => {
         { field: 'instructorId', message: 'Choose an instructor from this club.' },
       ]),
     );
-    const user = userEvent.setup();
     render(<NewClassPage />);
     await screen.findByLabelText('Instructor');
-    await fillValid(user);
-    await user.click(screen.getByRole('button', { name: 'Create class' }));
+    fillValid();
+    submit();
 
-    expect(await screen.findByText('Choose an instructor from this club.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Instructor')).toHaveFocus();
+    expect(await screen.findByText('Choose an instructor from this club.')).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByLabelText('Instructor'));
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
-  it('shows a banner with a plain message on a network error', async () => {
+  it('shows the server message in a banner on a 403', async () => {
     signInAs('instructor');
-    mocks.createClass.mockRejectedValue(new TypeError('Failed to fetch'));
-    const user = userEvent.setup();
+    mocks.createClass.mockRejectedValue(
+      new ApiError(403, 'FORBIDDEN', 'You can only manage classes for your own club.'),
+    );
     render(<NewClassPage />);
     await screen.findByLabelText('Name');
-    await fillValid(user);
-    await user.click(screen.getByRole('button', { name: 'Create class' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong. Please try again.');
-    expect(screen.getByRole('button', { name: 'Create class' })).toBeEnabled();
+    fillValid();
+    submit();
+    expect((await screen.findByRole('alert')).textContent).toBe('You can only manage classes for your own club.');
+  });
+
+  it('shows a banner with a plain message on a network error and lets the user retry', async () => {
+    signInAs('instructor');
+    mocks.createClass.mockRejectedValue(new TypeError('Failed to fetch'));
+    render(<NewClassPage />);
+    await screen.findByLabelText('Name');
+    fillValid();
+    submit();
+    expect((await screen.findByRole('alert')).textContent).toBe('Something went wrong. Please try again.');
+    expect((screen.getByRole('button', { name: 'Create class' }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

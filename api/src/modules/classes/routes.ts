@@ -1,12 +1,10 @@
-import type { Kysely } from 'kysely';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import type { Database } from '../../db/schema.js';
 import type { Clock } from '../../shared/clock.js';
 import { currentUser, requireRole } from '../auth/hooks.js';
 import { CLASS_MESSAGES } from './errors.js';
-import { createClass } from './service.js';
+import { scheduleQuerySchema, scheduleResponseSchema } from './schedule.dto.js';
+import { createClass, getSchedule, type ScheduleDeps } from './service.js';
 
 /**
  * Body of `POST /api/classes`. Built per app so "in the future" uses the injected clock.
@@ -41,24 +39,33 @@ export function createClassBodySchema(clock: Clock) {
   });
 }
 
-export interface ClassRoutesDeps {
-  db: Kysely<Database>;
-  clock: Clock;
-}
-
-/** Register inside the `/api` scope, under `authHook` and `originGuard` (ADR-015). */
-export function classRoutes(deps: ClassRoutesDeps): FastifyPluginAsync {
-  const bodySchema = createClassBodySchema(deps.clock);
+/**
+ * Class routes, registered inside the `/api` scope. No per-route auth hook: the global `authHook`
+ * protects every route there (ADR-015), before the query or body is validated.
+ */
+export function classRoutes(deps: ScheduleDeps): FastifyPluginAsyncZod {
+  const createBody = createClassBodySchema(deps.clock);
   return async (app) => {
-    app.withTypeProvider<ZodTypeProvider>().post(
+    app.get(
+      '/classes',
+      { schema: { querystring: scheduleQuerySchema, response: { 200: scheduleResponseSchema } } },
+      async (request, reply) => {
+        const schedule = await getSchedule(deps, currentUser(request), request.query);
+        // Member-specific statuses must never be served from a shared cache.
+        void reply.header('Cache-Control', 'no-store');
+        return schedule;
+      },
+    );
+
+    app.post(
       '/classes',
       {
         // Before body validation: a member with an invalid body still gets 403, not 400.
         preValidation: requireRole(['instructor', 'club_manager'], CLASS_MESSAGES.roleForbidden),
-        schema: { body: bodySchema },
+        schema: { body: createBody },
       },
       async (request, reply) => {
-        const dto = await createClass({ db: deps.db }, currentUser(request), request.body);
+        const dto = await createClass(deps, currentUser(request), request.body);
         return reply.code(201).header('Location', `/api/classes/${dto.id}`).send(dto);
       },
     );
