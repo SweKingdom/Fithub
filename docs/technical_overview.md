@@ -46,3 +46,17 @@ Rules:
 **Deployment:** no migration and no configuration. `classRoutes({ db, clock })` must be registered in the `/api` scope by `buildApp`. The `/schedule` route, the `/` redirect and the header link must be added at merge with US-118/US-120.
 
 **Status:** implemented but not compiled or tested; no project checks are configured.
+
+## Legacy member import (US-135)
+
+Operator-only CLI in the `imports` module (`api/src/modules/imports/`), run with `npm run import:members -w api -- --file <path> [--type-map <path>] [--delimiter ","] [--dry-run] [--out-dir <dir>]`.
+
+- **Flow:** read the CSV and the membership-type map, then plan in memory, then write. A real run uses one transaction that takes advisory lock `735136` (shared with US-136). A dry run takes no lock and writes nothing.
+- **Dedup key:** normalised email (trim, lower-case). Legacy member numbers are kept in `app_user.legacy_member_id` and in table `import_member_alias`.
+- **Data model:** `import_member_alias (legacy_member_id text PK, user_id uuid FK → app_user.id ON DELETE RESTRICT, created_at timestamptz)`. Invariant: if `app_user.legacy_member_id` is set, an alias with that number points to the same user.
+- **Passwords:** none are set. Imported members have role `member`.
+- **Reports** (in `--out-dir`, default `api/import-output/members-{UTC timestamp}`): `import-summary.json`, `import-rejections.csv`, `import-merges.csv`. They contain personal data and are git-ignored. Console output has counts only.
+- **Exit codes:** 0 when the run completes (rejections are not a failure); 1 for file, mapping, database or reconciliation errors, with nothing written.
+- **Configuration:** `DATABASE_URL`. Mapping file `api/seed/member-type-map.json` (reviewed like `clubs.json`; the example is `member-type-map.example.json`).
+- **Migration:** `0020_create_import_member_alias` (number to be checked at merge).
+- **Status:** written but not compiled or run on this branch; see the US-135 task document for the merge checklist.
