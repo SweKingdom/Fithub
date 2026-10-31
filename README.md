@@ -39,3 +39,61 @@ stripe listen --forward-to localhost:3000/webhooks/stripe
 ```
 
 Put the `whsec_…` value it prints in your local `.env` as `STRIPE_WEBHOOK_SECRET`.
+
+## Importing legacy members
+
+An operator-only command line tool loads the existing members once, without duplicates (US-135). There is no HTTP route and no screen. It needs `DATABASE_URL` in the environment, the migrations applied (`npm run db:migrate`) and the clubs seeded.
+
+### Import file
+
+Convert FitHub's export to this layout first. UTF-8 CSV (BOM allowed), one header row, delimiter `,` (use `--delimiter ";"` for Excel exports). Header names are case-insensitive; unknown columns are ignored.
+
+| Column | Required | Rule |
+|---|---|---|
+| `email` | yes | Trimmed and lower-cased; must be a valid address. Two rows with the same email are the same member |
+| `full_name` | yes | Trimmed, inner spaces collapsed; 1–200 characters |
+| `member_type` | yes | Looked up in the mapping file (below); a value that is not in it is rejected, there is no default |
+| `legacy_member_number` | no | 1–64 characters. Kept on the member and as an alias for every number of a merged member (used by the credit import) |
+| `home_club_code` | no | Must be an existing club code (upper-cased); empty = no home club |
+
+### Mapping file
+
+`api/seed/member-type-map.json` is a JSON object `{ "<source value>": "regular" | "drop_in" }`, compared ignoring case and spaces. Copy `api/seed/member-type-map.example.json` and fill in the values confirmed by the product owner. It holds no personal data and is reviewed by pull request. Use `--type-map <path>` for another file.
+
+### Commands
+
+Run from the repository root. Keep the files in `api/import-data/` and the reports in `api/import-output/`; both are git-ignored.
+
+```
+npm run import:members -w api -- --file import-data/members.csv --dry-run
+npm run import:members -w api -- --file import-data/members.csv
+```
+
+| Option | Meaning |
+|---|---|
+| `--file <path>` | Import file (required) |
+| `--type-map <path>` | Mapping file, default `seed/member-type-map.json` |
+| `--delimiter <char>` | One character, default `,` (`\t` for tab) |
+| `--dry-run` | Same reports, nothing is written |
+| `--out-dir <dir>` | Report folder, default `import-output/members-<UTC timestamp>` |
+
+Rules:
+
+- The whole file is written in one transaction. Any file error, mapping error, database error or unbalanced count leaves the database unchanged and exits with code 1. Rejected rows are not a failure (exit 0).
+- Same email with the same name, membership type and home club: merged into one member (listed in `import-merges.csv`). Same email with different data: all those rows are rejected. An email of a staff account is never changed.
+- Re-running the same file changes nothing. A corrected file updates the matched members in place.
+- Imported members get role `member` and no password; they cannot sign in until the onboarding question (US-118) is answered.
+
+### Reports
+
+| File | Content |
+|---|---|
+| `import-summary.json` | Counts, `rejectedByReason`, file hash, `dryRun`, `balanced`. `sourceRows` = `inserted` + `updated` + `unchanged` + `merged` + `rejected`. No personal data |
+| `import-rejections.csv` | `line,reason,message,email,legacy_member_number` |
+| `import-merges.csv` | `line,merged_into_line,email,legacy_member_number` |
+
+Rejection reasons: `INVALID_EMAIL`, `INVALID_NAME`, `UNMAPPED_MEMBER_TYPE`, `INVALID_LEGACY_NUMBER`, `UNKNOWN_CLUB`, `LEGACY_NUMBER_REUSED`, `CONFLICTING_DUPLICATE`, `LEGACY_NUMBER_BELONGS_TO_OTHER_MEMBER`, `EMAIL_USED_BY_STAFF`.
+
+### Clean-up
+
+The import file, the rejection report and the merge report contain personal data. After sign-off, delete `api/import-data/` and `api/import-output/` except the `import-summary.json` you keep as the sign-off record.
