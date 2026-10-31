@@ -30,6 +30,7 @@ export const scheduleItemSchema = z.object({
   freePlaces: z.number().int().min(0),
   status: z.enum(['scheduled', 'cancelled']),
   instructorName: z.string().nullable(),
+  canCancel: z.boolean(),
   myBookingStatus: z.enum(['none', 'confirmed', 'pending_payment', 'waiting']),
   myBooking: z
     .object({ id: z.string().uuid(), status: z.enum(['confirmed', 'pending_payment']) })
@@ -58,14 +59,19 @@ export interface ScheduleRow {
   duration_minutes: number;
   capacity: number;
   status: 'scheduled' | 'cancelled';
+  /** Used for the cancel policy only; never exposed. */
+  instructor_id: string | null;
   instructor_name: string | null;
   active_count: number;
   my_booking_id: string | null;
   my_booking_status: 'confirmed' | 'pending_payment' | null;
 }
 
-/** Maps a row to the public item. Ids of instructors, creators and other members are never included. */
-export function toScheduleItem(row: ScheduleRow): ScheduleItem {
+/**
+ * Maps a row to the public item. Ids of instructors, creators and other members are never included.
+ * `canCancel` is decided by the caller (it depends on the viewer); it defaults to false.
+ */
+export function toScheduleItem(row: ScheduleRow, canCancel = false): ScheduleItem {
   const myBooking: ScheduleItem['myBooking'] =
     row.my_booking_id !== null && row.my_booking_status !== null
       ? { id: row.my_booking_id, status: row.my_booking_status }
@@ -90,6 +96,7 @@ export function toScheduleItem(row: ScheduleRow): ScheduleItem {
     freePlaces: Math.max(row.capacity - row.active_count, 0),
     status: row.status,
     instructorName: row.instructor_name,
+    canCancel,
     myBookingStatus,
     myBooking,
     myWaitlist,

@@ -4,6 +4,7 @@ import type { Clock } from '../../shared/clock.js';
 import type { AuthUser } from '../auth/types.js';
 import { clubNotFound } from '../clubs/errors.js';
 import { findClubById } from '../clubs/repository.js';
+import { canCancelNow } from './policy.js';
 import { findSchedule } from './repository.js';
 import { toScheduleItem, type ScheduleQuery, type ScheduleResponse } from './schedule.dto.js';
 import { computeWindow } from './schedule-window.js';
@@ -13,7 +14,7 @@ export interface ScheduleDeps {
   clock: Clock;
 }
 
-/** Upcoming classes (two-week window) with free places and the signed-in member's own booking status. */
+/** Upcoming classes (two-week window) with free places, the member's own booking status and `canCancel`. */
 export async function getSchedule(
   deps: ScheduleDeps,
   user: AuthUser,
@@ -26,8 +27,9 @@ export async function getSchedule(
 
   // The member id only ever comes from the session; staff get no booking data.
   const memberId = user.role === 'member' ? user.id : null;
+  const now = deps.clock.now();
   const window = computeWindow(
-    deps.clock.now(),
+    now,
     query.from === undefined ? undefined : new Date(query.from),
     query.to === undefined ? undefined : new Date(query.to),
   );
@@ -39,6 +41,15 @@ export async function getSchedule(
   return {
     from: window.from.toISOString(),
     to: window.to.toISOString(),
-    items: rows.map(toScheduleItem),
+    items: rows.map((row) =>
+      toScheduleItem(
+        row,
+        canCancelNow(
+          user,
+          { clubId: row.club_id, instructorId: row.instructor_id, status: row.status, startAt: row.start_at },
+          now,
+        ),
+      ),
+    ),
   };
 }

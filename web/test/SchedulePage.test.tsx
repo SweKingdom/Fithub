@@ -35,6 +35,7 @@ function item(id: string, startAt: string, name: string): ScheduleItem {
     freePlaces: 5,
     status: 'scheduled',
     instructorName: null,
+    canCancel: false,
     myBookingStatus: 'none',
     myBooking: null,
     myWaitlist: null,

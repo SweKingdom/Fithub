@@ -16,6 +16,7 @@ function item(overrides: Partial<ScheduleItem> = {}): ScheduleItem {
     freePlaces: 2,
     status: 'scheduled',
     instructorName: 'Anna Berg',
+    canCancel: false,
     myBookingStatus: 'none',
     myBooking: null,
     myWaitlist: null,
