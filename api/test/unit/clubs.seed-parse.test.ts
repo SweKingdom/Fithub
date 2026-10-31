@@ -57,6 +57,16 @@ describe('parseClubSeed (US-117, AC 3)', () => {
     expect(problemsOf([{ name: 'X', timezone: 'UTC' }, 'text'])).toEqual([
       'Entry 1: code must be 2–20 characters A–Z, 0–9 or "-".',
       'Entry 2: code must be 2–20 characters A–Z, 0–9 or "-".',
+      'Entry 2: name is required (max 100 characters).',
+      'Entry 2: unknown time zone "".',
+    ]);
+  });
+
+  it('still checks name and time zone of an entry with a bad code', () => {
+    expect(problemsOf([valid({ code: 'bad', name: '', timezone: 'Europe/Atlantis' })])).toEqual([
+      'Entry 1: code must be 2–20 characters A–Z, 0–9 or "-".',
+      'Entry 1: name is required (max 100 characters).',
+      'Entry 1: unknown time zone "Europe/Atlantis".',
     ]);
   });
 
@@ -100,9 +110,9 @@ describe('parseClubSeed (US-117, AC 3)', () => {
     ]);
   });
 
-  it('collects every problem, one per entry problem', () => {
+  it('collects every problem of every entry', () => {
     const problems = problemsOf([
-      valid({ code: 'bad' }),
+      valid({ code: 'bad', name: 'First' }),
       valid({ code: 'AA', name: '', timezone: 'Nowhere/Land' }),
       valid({ code: 'AA', name: 'Same' }),
     ]);

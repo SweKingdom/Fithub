@@ -41,8 +41,9 @@ function isKnownTimeZone(timeZone: string): boolean {
 }
 
 /**
- * Validates the parsed seed file. Collects every problem and throws them together; unknown keys are
- * ignored. Entry numbers in messages are 1-based. Names are stored trimmed.
+ * Validates the parsed seed file. Collects every problem of every entry (an entry with a bad code is
+ * still checked for name and time zone) and throws them together; unknown keys are ignored. Entry
+ * numbers in messages are 1-based. Names are stored trimmed.
  */
 export function parseClubSeed(input: unknown): ClubSeedEntry[] {
   if (!Array.isArray(input) || input.length === 0) {
@@ -59,13 +60,16 @@ export function parseClubSeed(input: unknown): ClubSeedEntry[] {
     const record: Record<string, unknown> =
       typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 
-    const code = record.code;
-    if (typeof code !== 'string' || !CODE_PATTERN.test(code)) {
-      problems.push(`Entry ${n}: code must be 2–20 characters A–Z, 0–9 or "-".`);
-      return;
-    }
-    const label = `Entry ${n} (code "${code}")`;
+    const rawCode = record.code;
+    const code = typeof rawCode === 'string' && CODE_PATTERN.test(rawCode) ? rawCode : undefined;
+    let label = `Entry ${n}`;
     let valid = true;
+    if (code === undefined) {
+      problems.push(`Entry ${n}: code must be 2–20 characters A–Z, 0–9 or "-".`);
+      valid = false;
+    } else {
+      label = `Entry ${n} (code "${code}")`;
+    }
 
     const name = typeof record.name === 'string' ? record.name.trim() : '';
     if (name.length < 1 || name.length > NAME_MAX_LENGTH) {
@@ -79,12 +83,14 @@ export function parseClubSeed(input: unknown): ClubSeedEntry[] {
       valid = false;
     }
 
-    const firstWithCode = codeAt.get(code);
-    if (firstWithCode === undefined) {
-      codeAt.set(code, n);
-    } else {
-      problems.push(`Duplicate code "${code}" in entries ${firstWithCode} and ${n}.`);
-      valid = false;
+    if (code !== undefined) {
+      const firstWithCode = codeAt.get(code);
+      if (firstWithCode === undefined) {
+        codeAt.set(code, n);
+      } else {
+        problems.push(`Duplicate code "${code}" in entries ${firstWithCode} and ${n}.`);
+        valid = false;
+      }
     }
 
     if (name.length > 0) {
@@ -98,7 +104,7 @@ export function parseClubSeed(input: unknown): ClubSeedEntry[] {
       }
     }
 
-    if (valid) entries.push({ code, name, timezone });
+    if (valid && code !== undefined) entries.push({ code, name, timezone });
   });
 
   if (problems.length > 0) throw new ClubSeedError(problems);
