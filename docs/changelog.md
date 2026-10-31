@@ -2,4 +2,4 @@
 
 ## Unreleased
 
-- 2026-10-31 — US-121 View the two-week class schedule filtered by club: members see the next 14 days of classes per club with free places, own booking status, cancelled badges and club-local times (`GET /api/classes`, `/schedule` page; route and header link added at merge with US-118/US-120).
+- 2026-10-31 — US-135 Import existing members without duplicates: operator CLI loads legacy members by email, merges duplicates, rejects conflicts, is re-run safe, and supports dry runs (new table `import_member_alias`).
