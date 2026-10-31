@@ -105,3 +105,20 @@ Use this to publish a new class for your club so members can see and book it. On
 - The start time must be in the future. A class in the past is rejected.
 - You cannot create classes for another club.
 - Members do not see the **New class** link. If a member opens the page address directly, they see "You are not allowed to create classes."
+
+## How to see my bookings
+
+Use **My bookings** to see the classes you are going to and the classes you have already attended or missed. This page is available to members only.
+
+1. Sign in as a member.
+2. Select **My bookings** in the top menu.
+3. The **Upcoming** tab is open by default. It lists your active bookings on classes that have not ended yet, soonest first.
+4. Select the **Past** tab to see bookings on classes that have ended, most recent first. Cancelled bookings appear here with their status.
+5. Each row shows the class name, the club, and the date and time in the club's local time, plus the status.
+6. Select **Show more** at the bottom of the list to load more rows.
+
+Tips:
+- If the list is empty, the page shows "You have no upcoming bookings." or "You have no past bookings.".
+- If the list does not load, the page shows an error message with **Retry**.
+- You can only see your own bookings. Bookings of other members are never shown.
+- Staff (instructors and club managers) do not see the **My bookings** menu entry.
