@@ -62,3 +62,18 @@ export const attendanceRosterSchema = z.object({
 });
 
 export type AttendanceRoster = z.infer<typeof attendanceRosterSchema>;
+
+/** Started classes of the staff member's own club, newest first (entry point to the attendance list). */
+export const startedClassesSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      startAt: z.string(),
+      endsAt: z.string(),
+      clubTimezone: z.string(),
+    }),
+  ),
+});
+
+export type StartedClasses = z.infer<typeof startedClassesSchema>;

@@ -89,7 +89,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       api.addHook('onRequest', authHook({ db, clock, session: config.auth }));
       await api.register(authRoutes({ db, clock, config: config.auth }));
       await api.register(clubRoutes(db));
-      await api.register(classRoutes({ db, clock }));
+      await api.register(
+        classRoutes({ db, clock, attendanceEditWindowHours: config.attendance.editWindowHours }),
+      );
       await api.register(attendanceRoutes({ db, clock, events, config: config.attendance }));
     },
     { prefix: '/api' },

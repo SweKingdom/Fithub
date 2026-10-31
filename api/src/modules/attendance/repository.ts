@@ -26,6 +26,14 @@ export interface LockedBooking {
   attendance: Attendance;
 }
 
+export interface StartedClassRow {
+  id: string;
+  name: string;
+  start_at: Date;
+  duration_minutes: number;
+  club_timezone: string;
+}
+
 const CLASS_COLUMNS = ['id', 'club_id', 'name', 'start_at', 'duration_minutes', 'status'] as const;
 
 /** The class without a lock (read path). */
@@ -47,6 +55,29 @@ export function lockClassSkipLocked(trx: Transaction<Database>, classId: string)
     .forUpdate()
     .skipLocked()
     .executeTakeFirst();
+}
+
+/**
+ * Scheduled classes of the club that started in `(since, now]`, newest first: the entry point to the
+ * attendance list, because the public schedule never returns started classes. Read-only, no locks.
+ */
+export function findStartedClasses(
+  db: Kysely<Database>,
+  clubId: string,
+  since: Date,
+  now: Date,
+): Promise<StartedClassRow[]> {
+  return db
+    .selectFrom('gym_class as gc')
+    .innerJoin('club as c', 'c.id', 'gc.club_id')
+    .select(['gc.id', 'gc.name', 'gc.start_at', 'gc.duration_minutes', 'c.timezone as club_timezone'])
+    .where('gc.club_id', '=', clubId)
+    .where('gc.status', '=', 'scheduled')
+    .where('gc.start_at', '>', since)
+    .where('gc.start_at', '<=', now)
+    .orderBy('gc.start_at', 'desc')
+    .orderBy('gc.id', 'asc')
+    .execute();
 }
 
 /** Confirmed bookings of the class with the member's name (never the e-mail address), ordered by name. */

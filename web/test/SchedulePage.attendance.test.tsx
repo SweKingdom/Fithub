@@ -22,7 +22,13 @@ vi.mock('../src/lib/auth', () => ({
 
 const HOUR = 60 * 60 * 1000;
 
-function item(id: string, name: string, offsetMs: number, clubId = CLUB.id): ScheduleItem {
+function item(
+  id: string,
+  name: string,
+  offsetMs: number,
+  clubId = CLUB.id,
+  status: ScheduleItem['status'] = 'scheduled',
+): ScheduleItem {
   return {
     id,
     clubId,
@@ -33,7 +39,7 @@ function item(id: string, name: string, offsetMs: number, clubId = CLUB.id): Sch
     durationMinutes: 45,
     capacity: 20,
     freePlaces: 5,
-    status: 'scheduled',
+    status,
     instructorName: null,
     myBookingStatus: 'none',
     myBooking: null,
@@ -61,12 +67,13 @@ beforeEach(() => {
       item('c1', 'Started class', -HOUR),
       item('c2', 'Future class', 2 * HOUR),
       item('c3', 'Other club class', -HOUR, OTHER_CLUB_ID),
+      item('c4', 'Cancelled started class', -HOUR, CLUB.id, 'cancelled'),
     ],
   });
 });
 
 describe('SchedulePage attendance link (US-129 AC 9)', () => {
-  it('staff of the club see "Attendance" only on classes that have started', async () => {
+  it('staff of the club see "Attendance" only on started, scheduled classes', async () => {
     renderPage();
     await screen.findByText('Started class');
     const links = screen.getAllByRole('link', { name: 'Attendance' });
