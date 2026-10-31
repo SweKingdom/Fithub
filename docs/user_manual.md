@@ -70,3 +70,16 @@ The 24-hour period can be changed by your administrator.
 - A save is all or nothing. If one entry is not valid, nothing is saved. Fix the highlighted row and save again.
 - A recorded no-show may affect the member's future bookings (no-show block rule).
 - You cannot reset a recorded entry to "not recorded" in the app.
+
+## How to see why you cannot book a class
+
+If the club has blocked you from booking because of missed classes, a banner appears at the top of the class schedule.
+
+1. Open the class schedule.
+2. Read the banner. It shows the date and time until which you cannot book, and the number of missed classes, for example: "You can't book classes until 6 Nov 2026, 18:30 because of 3 missed classes." The time is the club's local time.
+3. While the banner is shown, the **Book** and **Join waiting list** buttons are disabled. You cannot book or join a waiting list until the date shown.
+4. When that date and time has passed, the banner disappears and you can book again.
+
+**Tips**
+- Your existing bookings stay in place during the block. Attend them, or cancel them as usual.
+- If you believe a missed class was recorded in error, contact the club. The club manager can correct the record, and the block then ends at once if you fall below the limit.
