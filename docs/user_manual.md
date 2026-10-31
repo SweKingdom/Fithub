@@ -83,3 +83,42 @@ If the club has blocked you from booking because of missed classes, a banner app
 **Tips**
 - Your existing bookings stay in place during the block. Attend them, or cancel them as usual.
 - If you believe a missed class was recorded in error, contact the club. The club manager can correct the record, and the block then ends at once if you fall below the limit.
+
+## How to create a class
+
+Use this to publish a new class for your club so members can see and book it. Only instructors and club managers can create classes.
+
+1. Sign in and open the **Class schedule** for your club.
+2. Click **New class**. The link is only visible to instructors and club managers.
+3. Check the **Club** field. It shows your own club and cannot be changed.
+4. Enter a **Name** (up to 100 characters). Required.
+5. Enter the **Date** and **Start time**. Times are in your club's local time.
+6. Enter the **Duration (minutes)**. Must be a whole number, at least 1.
+7. Enter the **Max places**. Must be a whole number, at least 1.
+8. Club managers only: choose an **Instructor** from your club, or leave **No instructor yet**. Instructors always become the instructor of the class they create.
+9. Click **Create class**. Wait until the button is no longer showing "Creating…".
+
+**Result:** you return to the schedule for your club and see the message "Class created." The new class has no bookings yet, so all of its places are free.
+
+**Tips and warnings**
+- If a field is wrong, the message appears under that field and the cursor moves to the first field with a problem. Correct it and submit again.
+- The start time must be in the future. A class in the past is rejected.
+- You cannot create classes for another club.
+- Members do not see the **New class** link. If a member opens the page address directly, they see "You are not allowed to create classes."
+
+## How to see my bookings
+
+Use **My bookings** to see the classes you are going to and the classes you have already attended or missed. This page is available to members only.
+
+1. Sign in as a member.
+2. Select **My bookings** in the top menu.
+3. The **Upcoming** tab is open by default. It lists your active bookings on classes that have not ended yet, soonest first.
+4. Select the **Past** tab to see bookings on classes that have ended, most recent first. Cancelled bookings appear here with their status.
+5. Each row shows the class name, the club, and the date and time in the club's local time, plus the status.
+6. Select **Show more** at the bottom of the list to load more rows.
+
+Tips:
+- If the list is empty, the page shows "You have no upcoming bookings." or "You have no past bookings.".
+- If the list does not load, the page shows an error message with **Retry**.
+- You can only see your own bookings. Bookings of other members are never shown.
+- Staff (instructors and club managers) do not see the **My bookings** menu entry.

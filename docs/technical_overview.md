@@ -218,3 +218,78 @@ Changing values affects only future decisions; existing blocks are not recalcula
 - `BookingBlockBanner` (`role="status"`) renders from `me.bookingBlock` on the schedule page. Its element id is `BOOKING_BLOCK_BANNER_ID`; Book and Join buttons reference it via `aria-describedby`.
 
 **Security:** the member id comes from the session. Block data is returned only to the member via `/api/me`. No staff route for blocks.
+
+## Class creation and instructor list (US-120)
+
+**Endpoints**
+
+| Method and route | Who | Result |
+|---|---|---|
+| `POST /api/classes` | instructor, club_manager (own club) | `201` + `Location`, body `ClassDto`; `400` `VALIDATION_ERROR` with `fieldErrors`; `403` role/club; `401` no session |
+| `GET /api/clubs/:clubId/instructors` | instructor, club_manager (own club) | `200` `[{ id, fullName }]` sorted by name, then id; no e-mail |
+
+- Global `authHook` runs first (ADR-015). The `requireRole` guard runs in `preValidation`, so a member with an invalid body gets 403.
+- The service uses `currentUser(request)` for the caller. `status`, `created_by` and (for instructors) `instructor_id` are set by the server; body values for them are ignored.
+- Club scope: `input.clubId` must equal `user.clubId`, otherwise 403 (no existence leak).
+- Instructor rule: `instructorId` absent, null or own id → own id; anything else → 400 on `instructorId`.
+- Club manager rule: `instructorId` must match an `app_user` with `role = 'instructor'` and the same `club_id` (`findInstructorInClub`).
+
+**Data model: `gym_class` (migration `0003_create_gym_class`)**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | `gen_random_uuid()` |
+| `club_id` | uuid FK → `club.id` | ON DELETE RESTRICT |
+| `name` | varchar(100) | stored trimmed; CHECK `gym_class_name_ck` (`btrim(name)` non-empty) |
+| `start_at` | timestamptz | UTC |
+| `duration_minutes` | integer | CHECK `gym_class_duration_ck` (> 0) |
+| `capacity` | integer | CHECK `gym_class_capacity_ck` (≥ 1) |
+| `status` | text | default `scheduled`; CHECK `gym_class_status_ck` (`scheduled`, `cancelled`) |
+| `instructor_id` | uuid FK → `app_user.id` | nullable; ON DELETE SET NULL |
+| `created_by` | uuid FK → `app_user.id` | NOT NULL; ON DELETE RESTRICT |
+| `created_at`, `updated_at` | timestamptz | default `now()` |
+
+Indexes: `gym_class_club_start_idx (club_id, start_at)`, `gym_class_instructor_idx (instructor_id)`. Down migration drops the table.
+
+**Validation and errors**
+- Zod schema `createClassBodySchema(clock)`; the start-time rule uses the injected `Clock`.
+- Shared error handler maps zod issues to one `fieldErrors` entry per field (first issue wins), top-level message "Please correct the highlighted fields.". Malformed JSON returns `VALIDATION_ERROR` "The request body is not valid JSON." Detection relies on `SyntaxError` / `FST_ERR_CTP_*` codes; verify in integration tests.
+- Messages are centralised in `CLASS_MESSAGES` (`modules/classes/errors.ts`).
+
+**DTO**
+- `ClassDto` via `toClassDto(row, activeBookingCount)`. `freePlaces = max(capacity − active bookings, 0)`; currently always 0 bookings. `cancelledAt` and `cancellationReason` are always null until US-126.
+
+**Web**
+- `clubLocalToUtc(date, time, timezone)` in `web/src/lib/time.ts` (date-fns-tz `fromZonedTime`, ADR-018).
+- `NewClassPage` posts through `createClass` in `web/src/api/classes.ts`; instructors loaded via `getInstructors` in `web/src/api/clubs.ts`.
+
+**Testing**
+- Unit: `test/unit/classes.schema.test.ts`.
+- Integration (not yet run): `test/integration/classes.create.test.ts`, `test/integration/clubs.instructors.test.ts`. The auth protection suite covers both routes automatically.
+- Factory: `createClass` in `test/helpers/factories.ts`.
+
+## Bookings access and read routes (US-123)
+
+Module: `api/src/modules/bookings/`. Access is decided in SQL, not after the fetch.
+
+| Route | Who | Behaviour |
+|---|---|---|
+| `GET /api/me/bookings?period=upcoming\|past&offset` | member | Own bookings. `upcoming` = `confirmed`, `pending_payment` on classes not yet ended, soonest first. `past` = any status on ended classes, newest first. Other `period` values → `400 VALIDATION_ERROR`. |
+| `GET /api/bookings/:id` | member (own), staff (own club) | Foreign, other-club or unknown id → `404 BOOKING_NOT_FOUND` "This booking does not exist." (identical body). |
+| `POST /api/bookings/:id/cancel` | member only | **Placeholder** (US-124 replaces the body). Staff → `403 FORBIDDEN`. Foreign or unknown id → `404`. Already cancelled or class started → `409 BOOKING_NOT_CANCELLABLE`. |
+| `GET /api/classes/:classId/bookings` | instructor, club manager (own club) | Roster, names only. Other club → `403 FORBIDDEN` "You can only manage classes for your own club.". Member → `403 FORBIDDEN` "Only instructors and club managers can manage classes.". |
+
+Files:
+- `access.ts`: `getReadableBooking`, `getOwnBookingForUpdate` (takes the class lock before the booking lock), `assertStaffOfClass`, `bookingNotFound`, `classNotFound`.
+- `repository.ts`: `listMemberBookings`, `findBookingForMember`, `findBookingForClub`, `findOwnBooking`, `markBookingCancelled`, `findClassForRoster`, `listClassRoster`.
+- `service.ts`: zod schemas, `toBookingDto`, `listMyBookings`, `getBooking`, `getClassRoster`, `cancelBooking`.
+
+`BookingDto`: `id, classId, className, clubName, clubTimezone, startAt, durationMinutes, status, attendance, canCancel`, plus `memberName` for staff viewers only.
+
+`canCancel` is computed only in `toBookingDto`: true when the viewer owns the booking, the status is `confirmed` or `pending_payment`, and the class has not started. Always false for staff. US-124 adds the cut-off rule (`BOOKING_CANCEL_CUTOFF_MINUTES`, not yet defined).
+
+Web: `/my-bookings` (`RequireAuth roles={['member']}`), `web/src/api/bookings.ts`, `MyBookingsPage.tsx`, `formatClubDateTime` in `web/src/lib/time.ts`.
+
+Tests: `bookings.list` and `bookings.access` integration tests (need the test database); `MyBookingsPage` web tests.
+
+Configuration and migrations: none. Depends on the `booking` table and `BookingDto` from US-122.
