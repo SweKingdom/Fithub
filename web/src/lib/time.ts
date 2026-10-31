@@ -14,3 +14,8 @@ export function clubDateKey(iso: string, timeZone: string): string {
 export function formatClubDay(iso: string, timeZone: string): string {
   return formatInTimeZone(iso, timeZone, 'EEEE d MMMM');
 }
+
+/** Weekday, date and time in the club's time zone, e.g. "Tue 3 Nov 2026, 18:30". */
+export function formatClubDateTime(iso: string, timeZone: string): string {
+  return formatInTimeZone(iso, timeZone, 'EEE d MMM yyyy, HH:mm');
+}
