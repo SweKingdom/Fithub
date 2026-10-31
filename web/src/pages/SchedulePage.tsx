@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { listClubs, type Club } from '../api/clubs';
 import { getSchedule, type ScheduleItem } from '../api/classes';
 import { ApiError } from '../api/client';
+import { BookButton, type BookingNotice } from '../components/BookButton';
 import { ClassCard } from '../components/ClassCard';
 import { useAuth } from '../lib/auth';
 import { clubDateKey, formatClubDay } from '../lib/time';
@@ -43,6 +44,7 @@ export function SchedulePage() {
   const [clubs, setClubs] = useState<Club[] | null>(null);
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [reloadToken, setReloadToken] = useState(0);
+  const [notice, setNotice] = useState<BookingNotice | null>(null);
   const [flash] = useState<string | null>(
     () => (location.state as { flash?: string } | null)?.flash ?? null,
   );
@@ -110,16 +112,36 @@ export function SchedulePage() {
     };
   }, [clubs, clubId, reloadToken, handleFailure]);
 
+  // Reloads the list without the loading state, so the cards (and the notice) stay on screen.
+  const refresh = useCallback(() => {
+    if (clubs === null || clubId === null) return;
+    getSchedule({ clubId })
+      .then((response) => setState({ status: 'ready', clubs, items: response.items }))
+      .catch(handleFailure);
+  }, [clubs, clubId, handleFailure]);
+
+  const handleBookingResult = useCallback(
+    (result: BookingNotice) => {
+      setNotice(result);
+      refresh();
+    },
+    [refresh],
+  );
+
   function changeClub(id: string): void {
+    setNotice(null);
     navigate(`/schedule?clubId=${encodeURIComponent(id)}`, { replace: true });
   }
 
   const groups = state.status === 'ready' ? groupByClubDay(state.items) : [];
+  const isMember = me?.role === 'member';
 
   return (
     <main>
       <h1>Schedule</h1>
       {flash !== null && <p role="status">{flash}</p>}
+      {notice?.kind === 'success' && <p role="status">{notice.text}</p>}
+      {notice?.kind === 'error' && <p role="alert">{notice.text}</p>}
 
       <label htmlFor="club-select">Club</label>
       <select
@@ -158,7 +180,11 @@ export function SchedulePage() {
             <h2>{group.heading}</h2>
             <ul>
               {group.items.map((item) => (
-                <ClassCard key={item.id} item={item} />
+                <ClassCard
+                  key={item.id}
+                  item={item}
+                  action={isMember ? <BookButton item={item} onResult={handleBookingResult} /> : undefined}
+                />
               ))}
             </ul>
           </section>
