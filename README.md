@@ -39,3 +39,38 @@ stripe listen --forward-to localhost:3000/webhooks/stripe
 ```
 
 Put the `whsec_…` value it prints in your local `.env` as `STRIPE_WEBHOOK_SECRET`.
+
+## Importing legacy members
+
+Operator-only commands, run on a trusted machine with `DATABASE_URL` set. There is no HTTP route. The import files and the reports contain personal data: keep them in `api/import-data/` and `api/import-output/` (both git-ignored) and delete them after sign-off.
+
+Run order: migrations (including the credit tables, US-125) → member import (US-135) → credit import (US-136). Run the credit import **before** members get access.
+
+### Importing class credits (US-136)
+
+```
+npm run import:credits -w api -- --file import-data/credits.csv --dry-run
+npm run import:credits -w api -- --file import-data/credits.csv
+```
+
+Options: `--file <path>` (required), `--delimiter ","` (one character, `\t` accepted), `--dry-run` (same reports, nothing written), `--out-dir <dir>` (default `import-output/credits-{UTC timestamp}`).
+
+The credits file is UTF-8 CSV (BOM allowed) with a header row. Convert the credit extract from FitHub to this layout first (at most 100,000 rows):
+
+| Column | Required | Rule |
+|---|---|---|
+| `credits` | column and value | Whole number 0–999,999 |
+| `legacy_member_number` | optional column | Resolved through the member import, so merged members work |
+| `email` | optional column | Trimmed and lower-cased; used when a row has no number |
+
+At least one of `legacy_member_number` and `email` must be a column, and each row needs a number or an email.
+
+Rules:
+
+- Credits of rows that resolve to the same member are summed into one `migration` ledger row (the later lines are listed in `import-merges.csv`).
+- Only regular members can hold credits. Rows for drop-in members and staff are rejected.
+- Re-running the same file changes nothing. A member who already has a different migrated total is rejected with `ALREADY_MIGRATED_DIFFERENT_TOTAL` and must be corrected manually.
+- A value of 0 writes nothing. Negative, decimal and non-numeric values are rejected.
+- Credit expiry dates in the source are ignored.
+
+Reports in the output folder: `import-summary.json` (counts and totals, `balanced` must be `true`), `import-rejections.csv` and `import-merges.csv`. Exit code 0 means the run completed (rejections are not a failure); exit code 1 means a file or database error or totals that do not add up, and nothing was written.
