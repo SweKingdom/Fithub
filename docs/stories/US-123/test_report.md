@@ -1,25 +1,24 @@
-# US-123 — Test report (iteration 1)
+# US-123 — Test report (iteration 4)
 **Verdict:** ❌ Changes requested · **Tester:** Cuélebre · **Date:** 2026-10-31
 
 ## Summary
 | Check | Result | Evidence |
 |---|---|---|
-| AC 1 Own upcoming bookings | ❌ | No `api/src/modules/bookings/` on the branch |
-| AC 2 Past bookings / invalid period | ❌ | No route or validation |
-| AC 3 Other members' bookings hidden | ❌ | No `GET /api/bookings/:id` |
-| AC 4 Other members' bookings cannot be changed | ❌ | No access helpers (`access.ts`) |
-| AC 5 Staff scope | ❌ | No roster route |
-| AC 6 Ownership test matrix | ❌ | `bookings.access.test.ts` does not exist |
-| AC 7 UI | ❌ | `MyBookingsPage.tsx` does not exist |
-| run_checks | ⚠️ | No checks configured, so nothing was compiled or tested |
+| AC 1 Own upcoming bookings | ❌ | No bookings module on branch |
+| AC 2 Past bookings / validation | ❌ | Not implemented |
+| AC 3 Other members' bookings hidden | ❌ | access.ts and route missing |
+| AC 4 Other members' bookings cannot be changed | ❌ | Cancel route missing |
+| AC 5 Staff scope | ❌ | Roster route missing |
+| AC 6 Access test matrix | ❌ | bookings.access.test.ts missing |
+| AC 7 UI | ❌ | No web workspace |
+| Checks gate | ❌ | lint exits 1: Missing script "lint". Typecheck passes. |
 
 ## Checks
-For every AC I listed the branch files and looked for the files named in the Technical Specification. None exist. The branch contains only `api/src/config.ts`, `api/src/server.ts`, `api/test/unit/config.test.ts` and docs. Evidence is the file listing; no screenshot applies because there is no record page to capture.
+The branch holds only `api/src/config.ts`, `api/src/server.ts`, `api/test/unit/config.test.ts` and docs. None of the files in the story's Technical Specification exist, so no AC can be met. I did not capture screenshots because there is no feature to show.
 
 ## What to do
-- Implement US-123 (all ACs) once the branch is rebased onto a base containing TK-119, US-117, US-118, US-120 and US-122. The developer's hand-over states these are missing.
-- Include the AC 6 ownership matrix test, and make sure checks are configured and run.
+- Every AC (1–7): the story is not implemented. Rebase or merge the branch onto a base that contains TK-119, US-117, US-118, US-120 and US-122. Then build US-123 as specified.
+- Checks gate: add the `lint` script (TK-119 scope), and make `npm run typecheck`, `lint`, `test:unit -w api`, `test -w web` and `build` pass.
 
 ## Not tested
-- Nothing could be run. The project has no checks configured, so there is no test output.
-- The cause is missing dependencies, not the ticket. The ticket is clear enough to test.
+None. Every AC failed because the delivery is missing.
