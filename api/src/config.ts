@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022) and
- * sign-in/session settings (US-118, ADR-014).
+ * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022),
+ * sign-in/session settings (US-118, ADR-014) and attendance settings (US-129).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -45,9 +45,20 @@ export interface AuthConfig {
   trustProxy: boolean;
 }
 
+/** Attendance recording settings (US-129). */
+export interface AttendanceConfig {
+  /** Hours after the class end during which instructors may still record attendance. */
+  editWindowHours: number;
+  /** When true, bookings still `unknown` after the window closes become `no_show`. */
+  autoNoShowEnabled: boolean;
+  /** How often the auto no-show sweep runs. */
+  sweepIntervalMinutes: number;
+}
+
 export interface AppConfig {
   payments: PaymentsConfig;
   auth: AuthConfig;
+  attendance: AttendanceConfig;
 }
 
 export class ConfigError extends Error {
@@ -227,12 +238,17 @@ function readInteger(
   fallback: number,
   min: number,
   problems: string[],
+  max?: number,
 ): number {
   const value = readText(env, name);
   if (value === undefined) return fallback;
   const parsed = INTEGER_PATTERN.test(value) ? Number(value) : NaN;
-  if (!Number.isSafeInteger(parsed) || parsed < min) {
-    problems.push(`${name}: must be an integer of at least ${min}`);
+  if (!Number.isSafeInteger(parsed) || parsed < min || (max !== undefined && parsed > max)) {
+    problems.push(
+      max === undefined
+        ? `${name}: must be an integer of at least ${min}`
+        : `${name}: must be an integer between ${min} and ${max}`,
+    );
     return fallback;
   }
   return parsed;
@@ -285,6 +301,15 @@ function parseAuthConfig(env: NodeJS.ProcessEnv, problems: string[]): AuthConfig
   };
 }
 
+/** Attendance settings (US-129). Appends one entry to `problems` per invalid variable. */
+function parseAttendanceConfig(env: NodeJS.ProcessEnv, problems: string[]): AttendanceConfig {
+  return {
+    editWindowHours: readInteger(env, 'ATTENDANCE_EDIT_WINDOW_HOURS', 24, 1, problems, 168),
+    autoNoShowEnabled: readBoolean(env, 'ATTENDANCE_AUTO_NO_SHOW_ENABLED', false, problems),
+    sweepIntervalMinutes: readInteger(env, 'ATTENDANCE_SWEEP_INTERVAL_MINUTES', 15, 1, problems, 1440),
+  };
+}
+
 /** Parses and validates the environment. Throws `ConfigError` listing every problem. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = envSchema.safeParse(pickPaymentEnv(env));
@@ -292,10 +317,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ? []
     : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
   const auth = parseAuthConfig(env, problems);
+  const attendance = parseAttendanceConfig(env, problems);
   if (problems.length > 0 || !result.success) {
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data), auth };
+  return { payments: toPaymentsConfig(result.data), auth, attendance };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */

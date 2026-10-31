@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { listClubs, type Club } from '../api/clubs';
 import { getSchedule, type ScheduleItem } from '../api/classes';
 import { ApiError } from '../api/client';
@@ -114,6 +114,13 @@ export function SchedulePage() {
     navigate(`/schedule?clubId=${encodeURIComponent(id)}`, { replace: true });
   }
 
+  /** Staff of the class's club can open its attendance list once the class has started (US-129). */
+  function attendanceLink(item: ScheduleItem) {
+    if (me === null || (me.role !== 'instructor' && me.role !== 'club_manager')) return undefined;
+    if (me.clubId !== item.clubId || Date.parse(item.startAt) > Date.now()) return undefined;
+    return <Link to={`/classes/${item.id}/attendance`}>Attendance</Link>;
+  }
+
   const groups = state.status === 'ready' ? groupByClubDay(state.items) : [];
 
   return (
@@ -158,7 +165,7 @@ export function SchedulePage() {
             <h2>{group.heading}</h2>
             <ul>
               {group.items.map((item) => (
-                <ClassCard key={item.id} item={item} />
+                <ClassCard key={item.id} item={item} action={attendanceLink(item)} />
               ))}
             </ul>
           </section>

@@ -1,5 +1,9 @@
 import { buildApp } from './app.js';
 import { ConfigError, describePayments, loadConfig, type AppConfig } from './config.js';
+import { createDbFromEnv } from './db/client.js';
+import { startAutoNoShowSweeper } from './modules/attendance/auto-no-show.js';
+import { systemClock } from './shared/clock.js';
+import { DomainEventBus } from './shared/domain-events.js';
 
 const DEFAULT_PORT = 3000;
 
@@ -23,14 +27,34 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const app = await buildApp({ config });
+  // The sweeper needs the same database connection and event bus as the app, so both are created here.
+  const db = createDbFromEnv();
+  const events = new DomainEventBus();
+  const app = await buildApp({ config, db, events });
+
+  let stopSweeper: (() => void) | null = null;
   const shutdown = (): void => {
-    void app.close().then(() => process.exit(0));
+    stopSweeper?.();
+    void app
+      .close()
+      .then(() => db.destroy())
+      .then(() => process.exit(0));
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
   await app.listen({ port, host: process.env.HOST ?? '0.0.0.0' });
+
+  if (config.attendance.autoNoShowEnabled) {
+    stopSweeper = startAutoNoShowSweeper({
+      db,
+      clock: systemClock,
+      events,
+      config: config.attendance,
+      logger: app.log,
+    });
+    console.log(`attendance.autoNoShow=enabled sweep every ${config.attendance.sweepIntervalMinutes} min`);
+  }
 }
 
 main().catch((error: unknown) => {
