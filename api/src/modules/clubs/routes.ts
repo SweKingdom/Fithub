@@ -1,22 +1,18 @@
-import type { Kysely } from 'kysely';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import type { Kysely } from 'kysely';
 import { z } from 'zod';
-import type { ClubDatabase } from './db-types.js';
+import type { Database } from '../../db/schema.js';
 import { ClubDtoSchema, toClubDto } from './dto.js';
 import { listClubs } from './repository.js';
 
-export interface ClubRouteDeps {
-  db: Kysely<ClubDatabase>;
-}
-
 /**
- * Club routes, registered inside the `/api` scope. No per-route auth hook: the global `authHook`
- * protects every route there (ADR-015, US-118). Clubs are read-only here; the seed CLI is the only writer.
+ * `GET /clubs`, registered inside the `/api` scope: the global `authHook` protects it (ADR-015).
+ * Clubs are read-only here; the seed CLI is the only writer.
  */
-export function clubRoutes(deps: ClubRouteDeps): FastifyPluginAsyncZod {
+export function clubRoutes(db: Kysely<Database>): FastifyPluginAsyncZod {
   return async (app) => {
     app.get('/clubs', { schema: { response: { 200: z.array(ClubDtoSchema) } } }, async () => {
-      const rows = await listClubs(deps.db);
+      const rows = await listClubs(db);
       return rows.map(toClubDto);
     });
   };

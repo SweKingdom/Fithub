@@ -1,0 +1,31 @@
+{
+  "name": "fithub",
+  "description": "FitHub: gym class booking for four clubs",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "api",
+    "web"
+  ],
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "npm run typecheck -w api && npm run typecheck -w web",
+    "test": "npm test -w api && npm test -w web",
+    "build": "npm run build -w api && npm run build -w web",
+    "db:migrate": "npm run db:migrate -w api",
+    "db:migrate:down": "npm run db:migrate:down -w api",
+    "db:seed:clubs": "npm run db:seed:clubs -w api",
+    "ci": "npm run lint && npm run typecheck && npm run db:migrate && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "eslint": "^9.14.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.12.0",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.13.0"
+  }
+}

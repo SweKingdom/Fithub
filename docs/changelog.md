@@ -2,4 +2,4 @@
 
 ## Unreleased
 
-- TK-119 Set up repository skeleton and CI pipeline with automated checks: npm workspaces (api, web), health endpoint, test-database guard, and CI workflow `CI / checks` running format, lint, typecheck, migrate, test and build.
+- {2026-10-31} — US-124 Cancel my booking up to 2 hours before the class: members can cancel their own booking until the configurable cut-off (`BOOKING_CANCEL_CUTOFF_MINUTES`, default 120); the place is freed and a `BookingCancelled` event is raised once. Requires migration 0022.

@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
-import { Kysely, PostgresDialect } from 'kysely';
-import pg from 'pg';
-import type { ClubDatabase } from '../src/modules/clubs/db-types.js';
+import type { Kysely } from 'kysely';
+import { createDbFromEnv } from '../src/db/client.js';
+import type { Database } from '../src/db/schema.js';
 import {
   ClubSeedError,
   formatClubSeedSummary,
@@ -23,18 +23,10 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    console.error('DATABASE_URL is not set.');
-    return 1;
-  }
-
-  let db: Kysely<ClubDatabase> | undefined;
+  let db: Kysely<Database> | undefined;
   try {
     const entries = loadClubSeedFile(file);
-    db = new Kysely<ClubDatabase>({
-      dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: databaseUrl }) }),
-    });
+    db = createDbFromEnv();
     const result = await seedClubs(db, entries, (line) => console.log(line));
     console.log(formatClubSeedSummary(result));
     result.warnings.forEach((warning) => console.warn(warning));

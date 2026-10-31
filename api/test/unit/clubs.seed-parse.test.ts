@@ -150,7 +150,7 @@ describe('loadClubSeedFile (US-117, AC 4)', () => {
 
   it('reads a valid file, also with a byte order mark', () => {
     const path = join(dir, 'ok.json');
-    writeFileSync(path, `﻿${JSON.stringify([valid()])}`);
+    writeFileSync(path, `${String.fromCharCode(0xfeff)}${JSON.stringify([valid()])}`);
     expect(loadClubSeedFile(path)).toEqual([valid()]);
   });
 

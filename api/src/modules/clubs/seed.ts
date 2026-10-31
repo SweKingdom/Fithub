@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { sql, type Kysely } from 'kysely';
-import type { ClubDatabase } from './db-types.js';
+import type { Database } from '../../db/schema.js';
 
 const CODE_PATTERN = /^[A-Z0-9-]{2,20}$/;
 const NAME_MAX_LENGTH = 100;
+const BYTE_ORDER_MARK = 0xfeff;
 const EXAMPLE_HINT = 'Copy seed/clubs.example.json to seed/clubs.json and fill in the confirmed club data.';
 
 export interface ClubSeedEntry {
@@ -127,7 +128,7 @@ export function loadClubSeedFile(path: string): ClubSeedEntry[] {
 
   let json: unknown;
   try {
-    json = JSON.parse(text.replace(/^﻿/, ''));
+    json = JSON.parse(text.charCodeAt(0) === BYTE_ORDER_MARK ? text.slice(1) : text);
   } catch {
     throw new ClubSeedError(['Club seed file must be a non-empty JSON array.']);
   }
@@ -141,7 +142,7 @@ export function loadClubSeedFile(path: string): ClubSeedEntry[] {
  * already used by a club with another code. `log` receives one line per change after the commit.
  */
 export async function seedClubs(
-  db: Kysely<ClubDatabase>,
+  db: Kysely<Database>,
   entries: ClubSeedEntry[],
   log: (line: string) => void = () => undefined,
 ): Promise<ClubSeedResult> {

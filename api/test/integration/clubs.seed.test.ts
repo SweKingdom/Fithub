@@ -1,6 +1,5 @@
-import { sql, type Kysely } from 'kysely';
+import { sql } from 'kysely';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ClubDatabase } from '../../src/modules/clubs/db-types.js';
 import {
   ClubSeedError,
   formatClubSeedSummary,
@@ -17,7 +16,7 @@ const FOUR: ClubSeedEntry[] = [
 ];
 
 describe('Club seed (US-117)', () => {
-  const db = testDb() as unknown as Kysely<ClubDatabase>;
+  const db = testDb();
 
   beforeEach(async () => {
     await sql`TRUNCATE club CASCADE`.execute(db);
