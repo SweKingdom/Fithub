@@ -2,9 +2,85 @@
 
 Gym class booking for four clubs: a React SPA (`web/`) on a Fastify JSON API (`api/`) with PostgreSQL.
 
+## Local setup
+
+Needs Node.js 22 and Docker.
+
+```
+docker compose up -d db          # PostgreSQL 16 with the databases fithub and fithub_test
+cp .env.example .env             # DATABASE_URL and TEST_DATABASE_URL match docker-compose.yml
+npm install
+npm run db:migrate
+npm run db:seed:clubs -w api -- --file seed/clubs.example.json
+npm run dev -w api               # API on http://localhost:3000
+npm run dev -w web               # web app on http://localhost:5173 (proxies /api to the API)
+```
+
+Checks (the same chain as CI): `npm run lint`, `npm run typecheck`, `npm run test:unit -w api`, `npm run test:integration -w api` (needs the database; it only runs on a database whose name ends in `_test`), `npm test -w web`, `npm run build`. `npm run ci` runs all of them.
+
+`GET /health` (outside `/api`, no sign-in) answers `200 {"status":"ok","db":"ok"}`, or `503 {"status":"error","db":"unreachable"}` when the database does not answer.
+
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection string. Required by the API and the operator commands | none |
+| `TEST_DATABASE_URL` | Database for the integration tests; the name must end with `_test`. Falls back to `DATABASE_URL` | none |
+| `PORT`, `HOST` | Where the API listens | `3000`, `0.0.0.0` |
+| `LOG_LEVEL` | Log level of the API | `info` |
+
+Seeding clubs: `api/seed/clubs.example.json` shows the format `[{ "code", "name", "timezone" }]`. Running the command again updates name and time zone of existing codes.
+
 ## Configuration
 
 Settings are read from environment variables (`.env` locally, see `.env.example`) and validated at startup in `api/src/config.ts`. An invalid setting stops the API with `Invalid configuration: <VARIABLE>: <reason>`. The message names the variable and never its value.
+
+### Sign-in and sessions
+
+Every `/api` endpoint needs a signed-in user, except `POST /api/auth/login` and `POST /api/auth/logout`. Users sign in with email and password; the API keeps an opaque session in PostgreSQL (only the SHA-256 hash of the token is stored) and sends it in the `fithub_session` cookie (`HttpOnly`, `SameSite=Strict`, `Path=/api`, `Secure` when `SESSION_COOKIE_SECURE=true`). The web app and the API must be served from the same origin (a Vite proxy does this in development).
+
+| Variable | Description | Default | Required when |
+|---|---|---|---|
+| `APP_ORIGIN` | Origin of the web app (no path, no trailing slash). `POST`/`PUT`/`PATCH`/`DELETE` requests with another `Origin` header get 403 | `http://localhost:5173` | `NODE_ENV=production` |
+| `SESSION_COOKIE_SECURE` | Send the session cookie over HTTPS only (`true` or `false`). Must be `true` in production | `true` in production, otherwise `false` | — |
+| `SESSION_IDLE_TIMEOUT_MINUTES` | A session ends after this many minutes without activity (integer, at least 5) | `720` (12 hours) | — |
+| `SESSION_MAX_AGE_HOURS` | A session ends this many hours after sign-in, whatever the activity (integer, at least 1) | `168` (7 days) | — |
+| `AUTH_SCRYPT_COST` | scrypt cost `N` for new password hashes: a power of two, at least 16384. Stored in each hash, so it can be raised later. Tests and CI use `16384` | `131072` | — |
+| `LOGIN_RATE_LIMIT_MAX` | Sign-in attempts per email and IP address within the window; the next one gets 429 (integer, at least 1) | `10` | — |
+| `LOGIN_RATE_LIMIT_WINDOW_MINUTES` | Length of that window in minutes (integer, at least 1) | `15` | — |
+| `TRUST_PROXY` | Set to `true` behind a reverse proxy or load balancer so the limit uses the client's IP address | `false` | — |
+
+Rules:
+
+- The session lifetimes (12 hours idle, 7 days maximum) and the sign-in method (email + password) are assumptions until the product owner confirms them.
+- Passwords have at least 12 characters. Wrong password, unknown email and an account without a password all answer `401 INVALID_CREDENTIALS` with the same message.
+- Sessions, passwords and tokens are never written to the log. Self-registration, invitations and password reset are not part of this version: operators create accounts (below).
+
+### Creating accounts (operator)
+
+Run from the repository root. They need `DATABASE_URL` in the environment (or in `.env`), the migrations applied (`npm run db:migrate`) and the clubs seeded. The password is read from standard input and is never accepted as an argument, so it stays out of the shell history and the process list.
+
+```
+echo "<password, at least 12 characters>" | npm run user:create -w api -- --email anna@example.com --name "Anna Berg" --role instructor --club <CLUB CODE> --password-stdin
+echo "<password>" | npm run user:set-password -w api -- --email anna@example.com --password-stdin
+```
+
+| Option | Meaning |
+|---|---|
+| `--email` | Email address; stored trimmed and lower-case. Must be unique ignoring letter case |
+| `--name` | Full name, 1–200 characters (`create` only) |
+| `--role` | `member`, `instructor` or `club_manager` (`create` only) |
+| `--club` | Club code. Required for `instructor` and `club_manager`; optional home club for a member |
+| `--member-type` | `regular` or `drop_in`. Required for a member, not allowed for staff |
+| `--password-stdin` | Required: read the password from standard input |
+
+Each command prints one line and exits with code 0. These cases print one line, exit with code 1 and change nothing: duplicate email, unknown club code, staff without `--club`, member without `--member-type`, staff with `--member-type`, password shorter than 12 characters, unknown email (`set-password`). `user:set-password` also ends every session of that user.
+
+#### Creating the first staff account
+
+After the first deployment there is nobody who can sign in. Create one club manager per club, then hand over the password through a secure channel:
+
+```
+echo "<password>" | npm run user:create -w api -- --email manager@example.com --name "Name" --role club_manager --club <CLUB CODE> --password-stdin
+```
 
 ### Payments (Stripe)
 

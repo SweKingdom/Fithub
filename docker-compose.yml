@@ -1,0 +1,17 @@
+# Local development database only. The credentials below are for this container, never for a shared environment.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: fithub
+      POSTGRES_PASSWORD: fithub
+      POSTGRES_DB: fithub
+    ports:
+      - '5432:5432'
+    volumes:
+      - fithub-db:/var/lib/postgresql/data
+      # Creates the `fithub_test` database on first start.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  fithub-db:
