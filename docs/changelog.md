@@ -2,4 +2,4 @@
 
 ## Unreleased
 
-- 2026-10-31 — TK-131 Configure Stripe account, API keys and webhook secret: payment settings are validated at startup (payments off by default, live-key guard, fail-fast on missing or malformed values); documented in README and `.env.example`.
+- 2026-10-31 — US-123 View my bookings – members only access their own bookings: members see their upcoming and past bookings under "My bookings"; other members' bookings return 404; club staff can read rosters for their own club; placeholder cancel route added for US-124.
