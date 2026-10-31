@@ -104,6 +104,10 @@ describe('payments config', () => {
         stripeTimeoutMs: 5000,
         dropInPriceAmount: 1500,
         dropInCurrency: 'eur',
+        retryBaseSeconds: 60,
+        retryMaxAttempts: 5,
+        holdMinutes: 30,
+        jobIntervalSeconds: 30,
       });
     });
 
@@ -161,6 +165,10 @@ describe('payments config', () => {
       stripeTimeoutMs: null,
       dropInPriceAmount: null,
       dropInCurrency: null,
+      retryBaseSeconds: null,
+      retryMaxAttempts: null,
+      holdMinutes: null,
+      jobIntervalSeconds: null,
     };
 
     it('starts with an empty environment and payments off', () => {
@@ -204,6 +212,50 @@ describe('payments config', () => {
         }).payments,
       );
       expect(line).toBe('payments.enabled=true mode=live');
+    });
+  });
+
+  describe('US-133: retry and hold policy', () => {
+    it('uses the defaults when the variables are not set', () => {
+      const { payments } = loadConfig(validEnv);
+      expect(payments.retryBaseSeconds).toBe(60);
+      expect(payments.retryMaxAttempts).toBe(5);
+      expect(payments.holdMinutes).toBe(30);
+      expect(payments.jobIntervalSeconds).toBe(30);
+    });
+
+    it('reads the configured values', () => {
+      const { payments } = loadConfig({
+        ...validEnv,
+        PAYMENT_RETRY_BASE_SECONDS: '10',
+        PAYMENT_RETRY_MAX_ATTEMPTS: '3',
+        PAYMENT_HOLD_MINUTES: '5',
+        PAYMENT_JOB_INTERVAL_SECONDS: '600',
+      });
+      expect(payments.retryBaseSeconds).toBe(10);
+      expect(payments.retryMaxAttempts).toBe(3);
+      expect(payments.holdMinutes).toBe(5);
+      expect(payments.jobIntervalSeconds).toBe(600);
+    });
+
+    it.each([
+      ['PAYMENT_RETRY_BASE_SECONDS', '9', 10, 3600],
+      ['PAYMENT_RETRY_BASE_SECONDS', '3601', 10, 3600],
+      ['PAYMENT_RETRY_MAX_ATTEMPTS', '0', 1, 10],
+      ['PAYMENT_RETRY_MAX_ATTEMPTS', '11', 1, 10],
+      ['PAYMENT_HOLD_MINUTES', '4', 5, 720],
+      ['PAYMENT_HOLD_MINUTES', '721', 5, 720],
+      ['PAYMENT_JOB_INTERVAL_SECONDS', '9', 10, 600],
+      ['PAYMENT_JOB_INTERVAL_SECONDS', '601', 10, 600],
+      ['PAYMENT_JOB_INTERVAL_SECONDS', 'often', 10, 600],
+    ])('rejects %s=%s', (variable, value, min, max) => {
+      expect(messageOf({ ...validEnv, [variable]: value })).toBe(
+        `Invalid configuration: ${variable}: must be an integer between ${min} and ${max}`,
+      );
+    });
+
+    it('ignores malformed retry variables when payments are off', () => {
+      expect(loadConfig({ PAYMENT_HOLD_MINUTES: '1' }).payments.enabled).toBe(false);
     });
   });
 });

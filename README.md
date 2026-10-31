@@ -20,6 +20,12 @@ Payments are off unless `PAYMENTS_ENABLED=true`. When they are off, all other va
 | `STRIPE_TIMEOUT_MS` | Per-request timeout for Stripe calls, integer 1000–30000 | `10000` | — |
 | `DROP_IN_PRICE_AMOUNT` | Drop-in price in minor units (e.g. cents), integer 1–99999999. Same price for every class and club. Value from the PO | none | `PAYMENTS_ENABLED=true` |
 | `DROP_IN_CURRENCY` | ISO 4217 code, 3 letters, normalised to lower case. Value from the PO | none | `PAYMENTS_ENABLED=true` |
+| `PAYMENT_RETRY_BASE_SECONDS` | Base of the exponential backoff when Stripe is unavailable, integer 10–3600. Wait before retry n = base × 2^(n-1): 1, 2, 4, 8 min with the default | `60` | — |
+| `PAYMENT_RETRY_MAX_ATTEMPTS` | Total create-intent attempts including the first, integer 1–10. After the last failure the booking is cancelled and the place freed | `5` | — |
+| `PAYMENT_HOLD_MINUTES` | How long a `pending_payment` booking keeps its place, counted from booking time and never beyond the class start, integer 5–720 (Stripe idempotency keys live 24 h) | `30` | — |
+| `PAYMENT_JOB_INTERVAL_SECONDS` | Interval of the `payment-maintenance` job (retries, hold expiry, intent clean-up), integer 10–600 | `30` | — |
+
+The retry and hold defaults are assumptions pending the PO's confirmation; they are configuration only.
 
 Rules:
 
