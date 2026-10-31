@@ -40,6 +40,46 @@ stripe listen --forward-to localhost:3000/webhooks/stripe
 
 Put the `whsec_…` value it prints in your local `.env` as `STRIPE_WEBHOOK_SECRET`.
 
+## Seeding clubs
+
+The four FitHub clubs are reference data. An operator-only command line tool loads them from a reviewed seed file (US-117). No API route or screen creates, edits or deletes clubs; `GET /api/clubs` only lists them for signed-in users.
+
+Prerequisites: `DATABASE_URL` in the environment and the migrations applied (`npm run db:migrate`).
+
+### Seed file
+
+`api/seed/clubs.json` is a JSON array. It holds no secrets and is committed after the product owner has confirmed the values. For local development copy `api/seed/clubs.example.json` (four fake clubs) or pass it with `--file`.
+
+```json
+[ { "code": "XXX", "name": "Club name", "timezone": "Europe/Stockholm" } ]
+```
+
+| Field | Rule |
+|---|---|
+| `code` | 2–20 characters `A–Z`, `0–9` or `-`, upper case as written. Unique. The seed matches clubs on it |
+| `name` | 1–100 characters after trimming. Unique, ignoring case |
+| `timezone` | IANA name such as `Europe/Stockholm`. Each club has its own, even if all four share one |
+
+Unknown keys are ignored.
+
+### Command
+
+Run from the repository root:
+
+```
+npm run db:seed:clubs
+npm run db:seed:clubs -- --file seed/clubs.example.json
+```
+
+`--file <path>` defaults to `seed/clubs.json` (relative to `api/`). Expected output: `Clubs seeded: 4 inserted, 0 updated, 0 unchanged.`
+
+Rules:
+
+- The seed is idempotent: it inserts new codes, updates a changed name or time zone in place (same `id`) and leaves equal rows untouched. Running it again changes nothing.
+- It runs in one transaction. An invalid file (bad code, empty name, unknown time zone, duplicate code or name), a missing file or a name that another club in the database already uses exits with code 1, names the entry and the problem, and writes nothing.
+- It never deletes a club. A club in the database that is not in the file is kept and reported as `Warning: club <CODE> exists in the database but not in the seed file; left unchanged.`
+- To rename a club to a name that another club in the database uses today, change the clubs one run at a time.
+
 ## Importing legacy members
 
 An operator-only command line tool loads the existing members once, without duplicates (US-135). There is no HTTP route and no screen. It needs `DATABASE_URL` in the environment, the migrations applied (`npm run db:migrate`) and the clubs seeded.

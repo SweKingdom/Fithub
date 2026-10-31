@@ -1,0 +1,6 @@
+[
+  { "code": "EXAMPLE-1", "name": "Example Club 1", "timezone": "UTC" },
+  { "code": "EXAMPLE-2", "name": "Example Club 2", "timezone": "UTC" },
+  { "code": "EXAMPLE-3", "name": "Example Club 3", "timezone": "UTC" },
+  { "code": "EXAMPLE-4", "name": "Example Club 4", "timezone": "UTC" }
+]
