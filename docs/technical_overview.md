@@ -60,3 +60,17 @@ Operator-only CLI in the `imports` module (`api/src/modules/imports/`), run with
 - **Configuration:** `DATABASE_URL`. Mapping file `api/seed/member-type-map.json` (reviewed like `clubs.json`; the example is `member-type-map.example.json`).
 - **Migration:** `0020_create_import_member_alias` (number to be checked at merge).
 - **Status:** written but not compiled or run on this branch; see the US-135 task document for the merge checklist.
+
+## Repository skeleton and CI pipeline (TK-119)
+
+**Layout:** npm workspaces `api` (Fastify 5, Kysely, PostgreSQL 16, Vitest 2) and `web` (React 18, Vite 5, Vitest 2 with jsdom). Node.js 22 (`.nvmrc`). ESM throughout.
+
+**Checks:** `npm run ci` runs Format → Lint → Typecheck → DB migrate → Test → Build. The same chain runs in GitHub Actions workflow `CI` (`.github/workflows/ci.yml`, job `checks`, status check `CI / checks`) on pull requests and pushes to `main`. The workflow has `permissions: contents: read` and no secrets.
+
+**Test database:** Integration tests run only against a database whose name ends in `_test` (`assertTestDatabase`). The global setup migrates that database before the tests. Tables are truncated with `resetDb()` (`api/test/helpers/db.ts`). Local PostgreSQL comes from `docker-compose.yml` (service `db`, creates `fithub_test` on first volume init).
+
+**API:** `GET /health` (public, outside `/api`) returns `200 {"status":"ok","db":"ok"}` or `503 {"status":"error","db":"unreachable"}`. No error detail is returned.
+
+**Configuration:** `DATABASE_URL` (required), `PORT` (3000), `NODE_ENV` (development), `LOG_LEVEL` (info). Validated in `api/src/config.ts`. Env files are loaded natively with `--env-file-if-exists` (no dotenv).
+
+**Open items:** README CI badge still uses placeholder `fithub/fithub` until the real repository owner and name are set. `package-lock.json` must be committed.
