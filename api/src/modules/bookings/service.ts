@@ -4,17 +4,19 @@ import type { WaitlistConfig } from '../../config.js';
 import type { Database } from '../../db/schema.js';
 import type { Notifier } from '../../notifications/notifier.js';
 import type { Clock } from '../../shared/clock.js';
+import type { DomainEventBus } from '../../shared/domain-events.js';
 import { DomainError } from '../../shared/errors.js';
 import type { Logger } from '../../shared/logger.js';
 import type { AuthUser } from '../auth/types.js';
 import { notifyPromotions, promoteNext } from '../waitlist/promotion.js';
 import { assertStaffOfClass, classNotFound, getOwnBookingForUpdate, getReadableBooking } from './access.js';
+import { cancelDeadline, formatCutoff, isWithinCancelWindow } from './cancel-window.js';
 import {
   findClassForRoster,
   countActiveBookings,
   listClassRoster,
   listMemberBookings,
-  markBookingCancelled,
+  markCancelled,
   type BookingRow,
 } from './repository.js';
 
@@ -31,6 +33,10 @@ export const bookingDtoSchema = z.object({
   durationMinutes: z.number().int(),
   status: bookingStatus,
   attendance,
+  /** Last moment the booking can be cancelled: `startAt` minus the configured cut-off. */
+  cancelDeadline: z.string(),
+  /** When the booking was cancelled; null while it is active. */
+  cancelledAt: z.string().nullable(),
   canCancel: z.boolean(),
   /** Only when the viewer is staff. */
   memberName: z.string().optional(),
@@ -70,6 +76,9 @@ export interface BookingDeps {
   db: Kysely<Database>;
   clock: Clock;
   waitlist: WaitlistConfig;
+  /** Members can cancel until this many minutes before the class starts (`BOOKING_CANCEL_CUTOFF_MINUTES`). */
+  cancelCutoffMinutes: number;
+  events: DomainEventBus;
   notifier: Notifier;
   logger: Logger;
 }
@@ -78,9 +87,9 @@ const isActive = (status: BookingRow['status']): boolean => status === 'confirme
 
 /**
  * The one place that decides `canCancel`: the viewer is the member who owns the booking, the booking is active and
- * the class has not started. US-124 swaps in its cut-off rule here.
+ * `now` is within the cancellation window (at or before `start_at − cutoff`).
  */
-export function toBookingDto(row: BookingRow, viewer: AuthUser, now: Date): BookingDto {
+export function toBookingDto(row: BookingRow, viewer: AuthUser, now: Date, cutoffMinutes: number): BookingDto {
   const isStaff = viewer.role !== 'member';
   return {
     id: row.id,
@@ -92,7 +101,13 @@ export function toBookingDto(row: BookingRow, viewer: AuthUser, now: Date): Book
     durationMinutes: row.duration_minutes,
     status: row.status,
     attendance: row.attendance,
-    canCancel: !isStaff && row.member_id === viewer.id && isActive(row.status) && row.start_at > now,
+    cancelDeadline: cancelDeadline(row.start_at, cutoffMinutes).toISOString(),
+    cancelledAt: row.cancelled_at?.toISOString() ?? null,
+    canCancel:
+      !isStaff &&
+      row.member_id === viewer.id &&
+      isActive(row.status) &&
+      isWithinCancelWindow(now, row.start_at, cutoffMinutes),
     ...(isStaff ? { memberName: row.member_name } : {}),
   };
 }
@@ -101,11 +116,16 @@ export function toBookingDto(row: BookingRow, viewer: AuthUser, now: Date): Book
 export async function listMyBookings(deps: BookingDeps, user: AuthUser, query: MyBookingsQuery) {
   const now = deps.clock.now();
   const { rows, total } = await listMemberBookings(deps.db, user.id, query.period, now, query.limit, query.offset);
-  return { items: rows.map((row) => toBookingDto(row, user, now)), total };
+  return { items: rows.map((row) => toBookingDto(row, user, now, deps.cancelCutoffMinutes)), total };
 }
 
 export async function getBooking(deps: BookingDeps, user: AuthUser, id: string): Promise<BookingDto> {
-  return toBookingDto(await getReadableBooking(deps.db, user, id), user, deps.clock.now());
+  return toBookingDto(
+    await getReadableBooking(deps.db, user, id),
+    user,
+    deps.clock.now(),
+    deps.cancelCutoffMinutes,
+  );
 }
 
 /** Roster of a class in the staff member's own club: active bookings, member names only. */
@@ -133,18 +153,38 @@ export async function getClassRoster(deps: BookingDeps, user: AuthUser, classId:
 }
 
 /**
- * Placeholder that US-124 replaces (cut-off, credits, events). Cancels the member's own active booking on a class
- * that has not started, then offers the freed place to the waiting list. Someone else's or an unknown booking is
- * `404 BOOKING_NOT_FOUND`; the row is never touched.
+ * The member cancels their own booking up to the cut-off before the class starts (US-124). One transaction, class
+ * lock before booking lock (ADR-010): it marks the booking cancelled, raises `BookingCancelled` (a failing
+ * subscriber rolls everything back) and offers the freed place to the waiting list. Someone else's or an unknown
+ * booking is `404 BOOKING_NOT_FOUND`; the row is never touched.
  */
 export async function cancelBooking(deps: BookingDeps, user: AuthUser, id: string): Promise<BookingDto> {
   const now = deps.clock.now();
   const promotions = await deps.db.transaction().execute(async (trx) => {
     const { booking, gymClass } = await getOwnBookingForUpdate(trx, user, id);
-    if (!isActive(booking.status) || gymClass.start_at <= now) {
-      throw new DomainError('BOOKING_NOT_CANCELLABLE', 'This booking can no longer be cancelled.', 409);
+    if (booking.status === 'cancelled') {
+      throw new DomainError('BOOKING_ALREADY_CANCELLED', 'This booking is already cancelled.', 409);
     }
-    await markBookingCancelled(trx, booking.id);
+    if (gymClass.status === 'cancelled') {
+      throw new DomainError('CLASS_CANCELLED', 'This class has been cancelled.', 409);
+    }
+    if (!isWithinCancelWindow(now, gymClass.start_at, deps.cancelCutoffMinutes)) {
+      throw new DomainError(
+        'CANCELLATION_WINDOW_CLOSED',
+        `Bookings can only be cancelled up to ${formatCutoff(deps.cancelCutoffMinutes)} before the class starts.`,
+        409,
+      );
+    }
+    await markCancelled(trx, booking.id, now);
+    await deps.events.publish(trx, {
+      type: 'BookingCancelled',
+      bookingId: booking.id,
+      classId: booking.class_id,
+      memberId: user.id,
+      previousStatus: booking.status,
+      cancelledAt: now,
+      cause: 'member_cancelled',
+    });
     return promoteNext(trx, booking.class_id, { clock: deps.clock, config: deps.waitlist, logger: deps.logger });
   });
   await notifyPromotions(promotions, deps.notifier, deps.logger);

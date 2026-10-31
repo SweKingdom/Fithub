@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 /**
  * Environment parsing and validation: payment (Stripe) settings (TK-131, ADR-022), sign-in/session settings
- * (US-118, ADR-014), waiting-list and background-job settings (US-128) and no-show block settings (US-130).
+ * (US-118, ADR-014), waiting-list and background-job settings (US-128), no-show block settings (US-130) and the
+ * booking cancellation cut-off (US-124).
  * Error messages name the variable and the reason, never the value.
  */
 
@@ -77,6 +78,8 @@ export interface AppConfig {
   waitlist: WaitlistConfig;
   noShow: NoShowConfig;
   jobs: JobsConfig;
+  /** Members may cancel a booking until this many minutes before the class starts (US-124). */
+  bookingCancelCutoffMinutes: number;
 }
 
 export class ConfigError extends Error {
@@ -93,6 +96,8 @@ const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
 const INTEGER_PATTERN = /^\d+$/;
 
 const DEFAULT_STRIPE_TIMEOUT_MS = 10000;
+const DEFAULT_BOOKING_CANCEL_CUTOFF_MINUTES = 120;
+const MAX_BOOKING_CANCEL_CUTOFF_MINUTES = 1440;
 const REQUIRED_WHEN_ENABLED = 'required when PAYMENTS_ENABLED=true';
 
 const DEFAULT_APP_ORIGIN = 'http://localhost:5173';
@@ -186,7 +191,7 @@ const envSchema = z
     }
   });
 
-type PaymentEnv = z.infer<typeof envSchema>;
+type ParsedEnv = z.infer<typeof envSchema>;
 
 function parseBoolean(value: string | undefined): boolean | 'invalid' {
   if (value === undefined || value === 'false') return false;
@@ -209,7 +214,7 @@ function pickPaymentEnv(env: NodeJS.ProcessEnv): Record<string, string | undefin
 }
 
 /** Builds the typed config from an already validated environment. */
-function toPaymentsConfig(env: PaymentEnv): PaymentsConfig {
+function toPaymentsConfig(env: ParsedEnv): PaymentsConfig {
   if (env.PAYMENTS_ENABLED !== 'true') {
     return {
       enabled: false,
@@ -371,10 +376,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const waitlist = parseWaitlistConfig(env, problems);
   const noShow = parseNoShowConfig(env, problems);
   const jobs = parseJobsConfig(env, problems);
+  const bookingCancelCutoffMinutes = readInteger(
+    env,
+    'BOOKING_CANCEL_CUTOFF_MINUTES',
+    DEFAULT_BOOKING_CANCEL_CUTOFF_MINUTES,
+    0,
+    problems,
+    MAX_BOOKING_CANCEL_CUTOFF_MINUTES,
+  );
   if (problems.length > 0 || !result.success) {
     throw new ConfigError(`Invalid configuration: ${problems.join('; ')}`);
   }
-  return { payments: toPaymentsConfig(result.data), auth, waitlist, noShow, jobs };
+  return { payments: toPaymentsConfig(result.data), auth, waitlist, noShow, jobs, bookingCancelCutoffMinutes };
 }
 
 /** One startup log fragment about payments. Never contains a key or secret. */

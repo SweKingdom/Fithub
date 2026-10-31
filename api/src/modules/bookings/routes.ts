@@ -47,7 +47,7 @@ export function bookingRoutes(deps: Omit<BookingDeps, 'notifier' | 'logger'>): F
     app.post(
       '/bookings/:id/cancel',
       {
-        preValidation: requireRole(['member'], 'Only members can cancel their bookings.'),
+        preValidation: requireRole(['member'], 'Only members can cancel their own bookings.'),
         schema: { params: bookingParams, response: { 200: bookingDtoSchema } },
       },
       async (request) => cancelBooking(full, currentUser(request), request.params.id),

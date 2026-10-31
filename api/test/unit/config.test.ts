@@ -207,3 +207,34 @@ describe('payments config', () => {
     });
   });
 });
+
+describe('booking cancel cut-off config (US-124)', () => {
+  const invalid = 'Invalid configuration: BOOKING_CANCEL_CUTOFF_MINUTES: must be an integer between 0 and 1440';
+
+  it('AC 8: defaults to 120 minutes when not set or blank', () => {
+    expect(loadConfig({}).bookingCancelCutoffMinutes).toBe(120);
+    expect(loadConfig({ BOOKING_CANCEL_CUTOFF_MINUTES: ' ' }).bookingCancelCutoffMinutes).toBe(120);
+  });
+
+  it.each([
+    ['90', 90],
+    ['0', 0],
+    ['1440', 1440],
+  ])('AC 8: accepts BOOKING_CANCEL_CUTOFF_MINUTES=%s', (value, expected) => {
+    expect(loadConfig({ BOOKING_CANCEL_CUTOFF_MINUTES: value }).bookingCancelCutoffMinutes).toBe(expected);
+  });
+
+  it.each(['abc', '-1', '1441', '12.5', '9007199254740993'])(
+    'AC 8: rejects BOOKING_CANCEL_CUTOFF_MINUTES=%s without echoing the value',
+    (value) => {
+      const message = messageOf({ BOOKING_CANCEL_CUTOFF_MINUTES: value });
+      expect(message).toBe(invalid);
+    },
+  );
+
+  it('is validated even when payments are off, and reported with other problems', () => {
+    const message = messageOf({ PAYMENTS_ENABLED: 'yes', BOOKING_CANCEL_CUTOFF_MINUTES: 'abc' });
+    expect(message).toContain('BOOKING_CANCEL_CUTOFF_MINUTES: must be an integer between 0 and 1440');
+    expect(message).toContain('PAYMENTS_ENABLED: must be true or false');
+  });
+});

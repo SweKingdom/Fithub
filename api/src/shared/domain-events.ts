@@ -18,8 +18,22 @@ export interface AttendanceRecorded {
   recordedAt: Date;
 }
 
-/** Events other stories add (e.g. `BookingCancelled`, US-124) join this union. */
-export type DomainEvent = AttendanceRecorded;
+/**
+ * A booking was cancelled (US-124, ADR-009, ADR-016). Raised inside the cancel transaction; `cause` tells the
+ * subscribers why (credit return, waiting-list promotion and refunds react to it in their own stories).
+ */
+export interface BookingCancelled {
+  type: 'BookingCancelled';
+  bookingId: string;
+  classId: string;
+  memberId: string;
+  previousStatus: 'confirmed' | 'pending_payment';
+  cancelledAt: Date;
+  cause: 'member_cancelled' | 'class_cancelled';
+}
+
+/** Events other stories add join this union. */
+export type DomainEvent = AttendanceRecorded | BookingCancelled;
 
 export type DomainEventType = DomainEvent['type'];
 

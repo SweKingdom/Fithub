@@ -30,7 +30,7 @@ export type AttendanceStatus = 'unknown' | 'attended' | 'no_show';
 
 /**
  * `booking` (migration 0004; `source` and `booked_at` from migration 0006; `attendance` and `no_show_block_id`
- * from migration 0021, US-130).
+ * from migration 0021, US-130; `cancelled_at` from migration 0022, US-124).
  */
 export interface BookingTable {
   id: Generated<string>;
@@ -42,6 +42,8 @@ export interface BookingTable {
   attendance: Generated<AttendanceStatus>;
   /** The block this no-show was counted for; null while it is uncounted. */
   no_show_block_id: string | null;
+  /** When the booking was cancelled; null while it is active. */
+  cancelled_at: Date | null;
   created_at: Generated<Date>;
 }
 

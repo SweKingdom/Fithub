@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getMyBookings, type Booking, type BookingPeriod } from '../api/bookings';
 import { ApiError } from '../api/client';
+import { CancelBookingButton } from '../components/CancelBookingButton';
 import { useAuth } from '../lib/auth';
 import { formatClubDateTime } from '../lib/time';
 
@@ -9,6 +10,9 @@ type LoadState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'ready'; items: Booking[]; total: number };
+
+/** Result of the last cancel attempt: a success toast or an error banner. */
+type Notice = { kind: 'success' | 'error'; text: string };
 
 const TABS: { period: BookingPeriod; label: string; empty: string }[] = [
   { period: 'upcoming', label: 'Upcoming', empty: 'You have no upcoming bookings.' },
@@ -36,6 +40,7 @@ export function MyBookingsPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [reloadToken, setReloadToken] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const handleFailure = useCallback(
     (error: unknown) => {
@@ -67,6 +72,12 @@ export function MyBookingsPage() {
     setReloadToken((token) => token + 1);
   }
 
+  /** Shows the outcome of a cancel attempt and reloads the list: the server is the source of truth. */
+  function afterCancel(result: Notice): void {
+    setNotice(result);
+    retry();
+  }
+
   function showMore(current: { items: Booking[] }): void {
     setLoadingMore(true);
     getMyBookings(period, current.items.length)
@@ -80,6 +91,9 @@ export function MyBookingsPage() {
   return (
     <main>
       <h1>My bookings</h1>
+
+      {notice?.kind === 'success' && <p role="status">{notice.text}</p>}
+      {notice?.kind === 'error' && <p role="alert">{notice.text}</p>}
 
       <div role="tablist" aria-label="Bookings">
         {TABS.map((candidate) => (
@@ -120,6 +134,13 @@ export function MyBookingsPage() {
                   <span> · {STATUS_LABEL[booking.status]}</span>
                   {period === 'past' && ATTENDANCE_LABEL[booking.attendance] && (
                     <span> · {ATTENDANCE_LABEL[booking.attendance]}</span>
+                  )}
+                  {period === 'upcoming' && (
+                    <CancelBookingButton
+                      booking={booking}
+                      onCancelled={() => afterCancel({ kind: 'success', text: 'Your booking has been cancelled.' })}
+                      onFailed={(text) => afterCancel({ kind: 'error', text })}
+                    />
                   )}
                 </li>
               ))}

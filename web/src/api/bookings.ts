@@ -12,6 +12,8 @@ export interface Booking {
   durationMinutes: number;
   status: 'confirmed' | 'pending_payment' | 'cancelled';
   attendance: 'unknown' | 'attended' | 'no_show';
+  /** Last moment the booking can be cancelled (`startAt` minus the configured cut-off). */
+  cancelDeadline: string;
   canCancel: boolean;
 }
 
@@ -24,4 +26,9 @@ export interface MyBookingsResponse {
 export function getMyBookings(period: BookingPeriod, offset = 0): Promise<MyBookingsResponse> {
   const query = new URLSearchParams({ period, offset: String(offset) });
   return apiFetch<MyBookingsResponse>(`/api/me/bookings?${query.toString()}`);
+}
+
+/** Cancels the member's own booking. Throws `ApiError` with the server's message when it is refused. */
+export function cancelBooking(id: string): Promise<Booking> {
+  return apiFetch<Booking>(`/api/bookings/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
 }

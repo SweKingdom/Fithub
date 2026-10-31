@@ -82,6 +82,12 @@ After the first deployment there is nobody who can sign in. Create one club mana
 echo "<password>" | npm run user:create -w api -- --email manager@example.com --name "Name" --role club_manager --club <CLUB CODE> --password-stdin
 ```
 
+### Bookings
+
+| Variable | Description | Default |
+|---|---|---|
+| `BOOKING_CANCEL_CUTOFF_MINUTES` | Members can cancel a booking until this many minutes before the class starts (exactly at the cut-off is still allowed). Integer 0–1440. Messages show the value, e.g. "2 hours" or "90 minutes" | `120` |
+
 ### Payments (Stripe)
 
 Payments are off unless `PAYMENTS_ENABLED=true`. When they are off, all other variables in this table are ignored and the startup log says `payments.enabled=false`. When they are on, the log says `payments.enabled=true mode=test` (or `live`), never a key.

@@ -72,6 +72,7 @@ function bookingRows(db: Kysely<Database>) {
       'booking.class_id as class_id',
       'booking.status as status',
       'booking.attendance as attendance',
+      'booking.cancelled_at as cancelled_at',
       'gym_class.name as class_name',
       'gym_class.start_at as start_at',
       'gym_class.duration_minutes as duration_minutes',
@@ -155,8 +156,9 @@ export async function findOwnBooking(
   return (lock ? query.forUpdate() : query).executeTakeFirst();
 }
 
-export async function markBookingCancelled(trx: Kysely<Database>, id: string): Promise<void> {
-  await trx.updateTable('booking').set({ status: 'cancelled' }).where('id', '=', id).execute();
+/** Frees the place: `status` = `cancelled` and `cancelled_at` = `at`. */
+export async function markCancelled(trx: Kysely<Database>, id: string, at: Date): Promise<void> {
+  await trx.updateTable('booking').set({ status: 'cancelled', cancelled_at: at }).where('id', '=', id).execute();
 }
 
 export async function findClassForRoster(

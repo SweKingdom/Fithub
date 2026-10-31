@@ -8,11 +8,12 @@ import { MyBookingsPage } from '../src/pages/MyBookingsPage';
 
 const mocks = vi.hoisted(() => ({
   getMyBookings: vi.fn(),
+  cancelBooking: vi.fn(),
   onUnauthenticated: vi.fn(),
   user: { fullName: 'Mia Member', role: 'member' } as { fullName: string; role: string },
 }));
 
-vi.mock('../src/api/bookings', () => ({ getMyBookings: mocks.getMyBookings }));
+vi.mock('../src/api/bookings', () => ({ getMyBookings: mocks.getMyBookings, cancelBooking: mocks.cancelBooking }));
 vi.mock('../src/lib/auth', () => ({
   useAuth: () => ({ user: mocks.user, signOut: vi.fn(), onUnauthenticated: mocks.onUnauthenticated }),
 }));
@@ -28,6 +29,7 @@ function booking(id: string, fields: Partial<Booking> = {}): Booking {
     durationMinutes: 45,
     status: 'confirmed',
     attendance: 'unknown',
+    cancelDeadline: '2026-11-03T15:30:00.000Z',
     canCancel: true,
     ...fields,
   };
@@ -149,5 +151,38 @@ describe('AppHeader menu (US-123 AC 7)', () => {
       </MemoryRouter>,
     );
     expect(screen.queryByRole('link', { name: 'My bookings' })).toBeNull();
+  });
+});
+
+describe('MyBookingsPage cancelling (US-124 AC 9)', () => {
+  it('cancels after confirmation, shows the toast and the row leaves Upcoming', async () => {
+    mocks.getMyBookings
+      .mockResolvedValueOnce({ items: [booking('1')], total: 1 })
+      .mockResolvedValueOnce({ items: [], total: 0 });
+    mocks.cancelBooking.mockResolvedValue(booking('1', { status: 'cancelled', canCancel: false }));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel booking' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel booking' }));
+
+    expect((await screen.findByRole('status')).textContent).toBe('Your booking has been cancelled.');
+    expect(mocks.cancelBooking).toHaveBeenCalledWith('1');
+    expect(await screen.findByText('You have no upcoming bookings.')).toBeTruthy();
+    expect(mocks.getMyBookings).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the API error in an alert and refreshes the list', async () => {
+    mocks.getMyBookings.mockResolvedValue({ items: [booking('1')], total: 1 });
+    mocks.cancelBooking.mockRejectedValue(
+      new ApiError(409, 'CANCELLATION_WINDOW_CLOSED', 'Bookings can only be cancelled up to 2 hours before the class starts.'),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel booking' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel booking' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('Bookings can only be cancelled up to 2 hours before the class starts.');
+    await waitFor(() => expect(mocks.getMyBookings).toHaveBeenCalledTimes(2));
   });
 });

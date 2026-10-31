@@ -105,7 +105,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
       await api.register(authRoutes({ db, clock, config: config.auth, blocks: blockService }));
       await api.register(clubRoutes(db));
       await api.register(classRoutes({ db, clock }));
-      await api.register(bookingRoutes({ db, clock, waitlist: config.waitlist }));
+      await api.register(
+        bookingRoutes({
+          db,
+          clock,
+          waitlist: config.waitlist,
+          cancelCutoffMinutes: config.bookingCancelCutoffMinutes,
+          events,
+        }),
+      );
     },
     { prefix: '/api' },
   );

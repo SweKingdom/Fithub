@@ -67,8 +67,8 @@ describe('booking access (US-123)', () => {
     const memberC = await createUser(db, { role: 'member', clubId: clubB.id });
     const staffA = await createUser(db, { role: 'club_manager', clubId: clubA.id });
     const staffB = await createUser(db, { role: 'instructor', clubId: clubB.id });
-    const classA = await createClass(db, { clubId: clubA.id, startAt: new Date(T.getTime() + 2 * HOUR) });
-    const classB = await createClass(db, { clubId: clubB.id, startAt: new Date(T.getTime() + 2 * HOUR) });
+    const classA = await createClass(db, { clubId: clubA.id, startAt: new Date(T.getTime() + 3 * HOUR) });
+    const classB = await createClass(db, { clubId: clubB.id, startAt: new Date(T.getTime() + 3 * HOUR) });
     world = {
       cookies: {
         memberA: await signInAs(app, memberA),
@@ -131,6 +131,6 @@ describe('booking access (US-123)', () => {
     expect(first.json()).toMatchObject({ id: world.bookingA, status: 'cancelled', canCancel: false });
     const second = await request('POST', `/api/bookings/${world.bookingA}/cancel`, 'memberA');
     expect(second.statusCode).toBe(409);
-    expect(second.json().code).toBe('BOOKING_NOT_CANCELLABLE');
+    expect(second.json().code).toBe('BOOKING_ALREADY_CANCELLED');
   });
 });
