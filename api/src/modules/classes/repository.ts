@@ -2,6 +2,13 @@ import { sql, type Kysely } from 'kysely';
 import type { Database } from '../../db/schema.js';
 import type { ScheduleRow } from './schedule.dto.js';
 
+/** Started classes of one club whose attendance can still be recorded by instructors (US-129). */
+export interface RecentlyStartedFilter {
+  clubId: string;
+  now: Date;
+  editWindowHours: number;
+}
+
 export interface FindScheduleParams {
   clubId?: string;
   /** Exclusive lower bound of `start_at`. */
@@ -10,6 +17,8 @@ export interface FindScheduleParams {
   to: Date;
   /** The viewing member; null for staff, so no booking is joined. */
   memberId: string | null;
+  /** Staff only: also return started classes of their club until the attendance window closes. */
+  recentlyStarted?: RecentlyStartedFilter;
 }
 
 /**
@@ -51,8 +60,23 @@ export async function findSchedule(db: Kysely<Database>, params: FindSchedulePar
       'mb.id as my_booking_id',
       'mb.status as my_booking_status',
     ])
-    .where('gc.start_at', '>', params.from)
     .where('gc.start_at', '<=', params.to);
+
+  const recent = params.recentlyStarted;
+  query =
+    recent === undefined
+      ? query.where('gc.start_at', '>', params.from)
+      : query.where((eb) =>
+          eb.or([
+            eb('gc.start_at', '>', params.from),
+            eb.and([
+              eb('gc.club_id', '=', recent.clubId),
+              eb('gc.start_at', '<=', recent.now),
+              // Attendance window not closed yet: start + duration + edit window > now.
+              sql<boolean>`gc.start_at + make_interval(mins => gc.duration_minutes) + make_interval(hours => ${recent.editWindowHours}::int) > ${recent.now}`,
+            ]),
+          ]),
+        );
 
   if (params.clubId !== undefined) {
     query = query.where('gc.club_id', '=', params.clubId);

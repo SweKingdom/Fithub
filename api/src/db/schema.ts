@@ -26,12 +26,19 @@ export interface GymClassTable {
   created_at: Generated<Date>;
 }
 
-/** `booking` (migration 0004; `source` and `booked_at` from migration 0006). */
+/** Attendance of a confirmed booking; `unknown` until staff (or the auto no-show sweep) record it. */
+export type Attendance = 'unknown' | 'attended' | 'no_show';
+
+/** `booking` (migration 0004; `source` and `booked_at` from migration 0006; attendance audit from migration 0021). */
 export interface BookingTable {
   id: Generated<string>;
   class_id: string;
   member_id: string;
   status: 'confirmed' | 'pending_payment' | 'cancelled';
+  attendance: Generated<Attendance>;
+  /** Who recorded the attendance; null together with `attendance_recorded_at` = auto no-show sweep (US-129). */
+  attendance_recorded_by: string | null;
+  attendance_recorded_at: Date | null;
   source: Generated<'direct' | 'waitlist'>;
   booked_at: Generated<Date>;
   created_at: Generated<Date>;
