@@ -2,4 +2,4 @@
 
 ## Unreleased
 
-- 2026-10-31 — US-123 View my bookings – members only access their own bookings: members see their upcoming and past bookings under "My bookings"; other members' bookings return 404; club staff can read rosters for their own club; placeholder cancel route added for US-124.
+- {2026-10-31} — US-124 Cancel my booking up to 2 hours before the class: members can cancel their own booking until the configurable cut-off (`BOOKING_CANCEL_CUTOFF_MINUTES`, default 120); the place is freed and a `BookingCancelled` event is raised once. Requires migration 0022.

@@ -293,3 +293,38 @@ Web: `/my-bookings` (`RequireAuth roles={['member']}`), `web/src/api/bookings.ts
 Tests: `bookings.list` and `bookings.access` integration tests (need the test database); `MyBookingsPage` web tests.
 
 Configuration and migrations: none. Depends on the `booking` table and `BookingDto` from US-122.
+
+## Member booking cancellation (US-124)
+
+**Endpoint:** `POST /api/bookings/:id/cancel` (member only; instructors and club managers get `403 FORBIDDEN`).
+
+**Behaviour**
+- Allowed while `now ≤ class start − BOOKING_CANCEL_CUTOFF_MINUTES` (default 120). Boundary is inclusive.
+- Only the owning member may cancel. Other members' or unknown bookings → `404 BOOKING_NOT_FOUND`.
+- Status must be `confirmed` or `pending_payment`. `cancelled` → `409 BOOKING_ALREADY_CANCELLED`.
+- Class with status `cancelled` → `409 CLASS_CANCELLED`.
+- Outside the window → `409 CANCELLATION_WINDOW_CLOSED`.
+- On success: `status` = `cancelled`, `cancelled_at` = now, and one `BookingCancelled` event is published inside the same transaction. Payload: `{ bookingId, classId, memberId, previousStatus, cancelledAt, cause: 'member_cancelled' }`. A failing handler rolls back the cancel (`500`).
+- Waiting-list promotion (US-128) runs after the event in the same transaction; notifications are sent after commit.
+
+**Data model**
+| Table | Column | Type | Notes |
+|---|---|---|---|
+| `booking` | `cancelled_at` | `timestamptz NULL` | Added by migration `0022_booking_cancelled_at` (`IF NOT EXISTS`). Not written on update: there is no `updated_at`. |
+
+**BookingDto** adds `cancelDeadline` (used by the UI hint) and `cancelledAt`. `canCancel` is `true` only when the booking is active and inside the window.
+
+**Configuration**
+| Variable | Type | Default | Notes |
+|---|---|---|---|
+| `BOOKING_CANCEL_CUTOFF_MINUTES` | integer 0–1440 | 120 | Invalid value stops startup: `Invalid configuration: BOOKING_CANCEL_CUTOFF_MINUTES: must be an integer between 0 and 1440`. Mapped to `bookingCancelCutoffMinutes`. |
+
+**Modules**
+- `api/src/modules/bookings/cancel-window.ts` — `cancelDeadline`, `isWithinCancelWindow`, `formatCutoff`.
+- `api/src/modules/bookings/service.ts` — `cancelBooking`.
+- `api/src/modules/bookings/repository.ts` — `markCancelled(trx, id, at)`; reuses `getOwnBookingForUpdate` (class lock, then booking lock).
+- `api/src/shared/domain-events.ts` — `BookingCancelled` in the `DomainEvent` union of `DomainEventBus`.
+
+**Web:** `cancelBooking(id)` in `web/src/api/bookings.ts`; `CancelBookingButton` renders its own `role="dialog"` confirmation; `MyBookingsPage` shows success (`role="status"`) and error (`role="alert"`) notices.
+
+**Deployment:** run `npm run db:migrate` before starting the new API.

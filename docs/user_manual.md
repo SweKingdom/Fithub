@@ -122,3 +122,22 @@ Tips:
 - If the list does not load, the page shows an error message with **Retry**.
 - You can only see your own bookings. Bookings of other members are never shown.
 - Staff (instructors and club managers) do not see the **My bookings** menu entry.
+
+## How to cancel my booking
+
+You can cancel your own class booking up to 2 hours before the class starts. The cancelled place is released for other members straight away.
+
+1. Sign in and open **My bookings**.
+2. In the **Upcoming** list, find the class you want to cancel.
+3. If the row shows **Cancel booking**, select it.
+4. In the confirmation dialog, confirm the cancellation.
+5. A message **Your booking has been cancelled.** appears, and the class leaves the **Upcoming** list.
+
+**Tips**
+- If the button is greyed out and shows **Cancellation closed (less than 2 hours to start)**, the cancellation window has closed. You are expected to attend the class.
+- The cut-off time is set by the club. The window message always states the configured value (for example "2 hours" or "90 minutes").
+- Cancelling a class that the club has already cancelled is not needed: the booking is handled by the club.
+
+**Warnings**
+- If an error appears in an alert, the list is refreshed automatically. Check **My bookings** again before you assume the cancellation went through.
+- Staff (instructors and club managers) cannot cancel a member's booking from this page.
