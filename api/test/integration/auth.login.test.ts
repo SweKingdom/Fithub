@@ -57,6 +57,7 @@ describe('sign-in and sign-out (US-118)', () => {
       memberType: null,
       clubId: club.id,
       clubName: club.name,
+      bookingBlock: null,
     });
 
     const cookie = setCookieOf(response) as string;

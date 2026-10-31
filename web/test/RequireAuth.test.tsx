@@ -18,6 +18,7 @@ const MEMBER: Me = {
   memberType: 'regular',
   clubId: null,
   clubName: null,
+  bookingBlock: null,
 };
 
 function Probe() {

@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { listClubs, type Club } from '../api/clubs';
 import { getSchedule, type ScheduleItem } from '../api/classes';
 import { ApiError } from '../api/client';
+import { BookingBlockBanner } from '../components/BookingBlockBanner';
 import { ClassCard } from '../components/ClassCard';
 import { useAuth } from '../lib/auth';
 import { clubDateKey, formatClubDay } from '../lib/time';
@@ -120,6 +121,7 @@ export function SchedulePage() {
     <main>
       <h1>Schedule</h1>
       {flash !== null && <p role="status">{flash}</p>}
+      <BookingBlockBanner block={me?.bookingBlock ?? null} />
 
       <label htmlFor="club-select">Club</label>
       <select

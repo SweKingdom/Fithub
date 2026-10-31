@@ -17,6 +17,7 @@ const ME: Me = {
   memberType: null,
   clubId: 'c1',
   clubName: 'Club One',
+  bookingBlock: null,
 };
 
 function Probe() {

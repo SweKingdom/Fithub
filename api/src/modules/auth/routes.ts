@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { AuthConfig } from '../../config.js';
 import type { Clock } from '../../shared/clock.js';
 import { DomainError } from '../../shared/errors.js';
+import type { BlockService } from '../attendance/block-service.js';
 import type { AuthDatabase } from './db-types.js';
 import { currentUser, SESSION_COOKIE } from './hooks.js';
 import { authenticate, buildMe, login, toAuthUser } from './service.js';
@@ -16,6 +17,8 @@ export interface AuthRouteDeps {
   db: Kysely<AuthDatabase>;
   clock: Clock;
   config: AuthConfig;
+  /** Supplies `bookingBlock` of `GET /me` (US-130). */
+  blocks: Pick<BlockService, 'getActiveBlock'>;
 }
 
 const loginBodySchema = z.object({
@@ -31,6 +34,14 @@ const meSchema = z.object({
   memberType: z.enum(['regular', 'drop_in']).nullable(),
   clubId: z.string().nullable(),
   clubName: z.string().nullable(),
+  bookingBlock: z
+    .object({
+      endsAt: z.string(),
+      reason: z.enum(['no_show', 'manual']),
+      noShowCount: z.number().nullable(),
+      message: z.string(),
+    })
+    .nullable(),
 });
 
 function cookieOptions(config: AuthConfig) {
@@ -47,7 +58,7 @@ function cookieOptions(config: AuthConfig) {
  * Login and logout are the only public routes.
  */
 export function authRoutes(deps: AuthRouteDeps): FastifyPluginAsyncZod {
-  const { db, clock, config } = deps;
+  const { db, clock, config, blocks } = deps;
 
   return async (app) => {
     app.post(
@@ -94,7 +105,7 @@ export function authRoutes(deps: AuthRouteDeps): FastifyPluginAsyncZod {
         });
         void reply.header('Cache-Control', 'no-store');
         request.log.info({ userId: user.id }, 'auth.login_succeeded');
-        return buildMe(db, toAuthUser(user));
+        return buildMe(db, toAuthUser(user), blocks);
       },
     );
 
@@ -106,7 +117,7 @@ export function authRoutes(deps: AuthRouteDeps): FastifyPluginAsyncZod {
 
     app.get('/me', { schema: { response: { 200: meSchema } } }, async (request, reply) => {
       void reply.header('Cache-Control', 'no-store');
-      return buildMe(db, currentUser(request));
+      return buildMe(db, currentUser(request), blocks);
     });
   };
 }

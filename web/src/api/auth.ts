@@ -2,6 +2,14 @@ import { apiFetch } from './client';
 
 export type Role = 'member' | 'instructor' | 'club_manager';
 
+/** The member's active booking block (US-130). `message` is the text to show the member. */
+export interface BookingBlock {
+  endsAt: string;
+  reason: 'no_show' | 'manual';
+  noShowCount: number | null;
+  message: string;
+}
+
 /** The signed-in user, same shape as the API's `MeDto`. */
 export interface Me {
   id: string;
@@ -11,6 +19,8 @@ export interface Me {
   memberType: 'regular' | 'drop_in' | null;
   clubId: string | null;
   clubName: string | null;
+  /** Null when not blocked (and always for staff). */
+  bookingBlock: BookingBlock | null;
 }
 
 export function login(email: string, password: string): Promise<Me> {

@@ -26,7 +26,12 @@ export interface GymClassTable {
   created_at: Generated<Date>;
 }
 
-/** `booking` (migration 0004; `source` and `booked_at` from migration 0006). */
+export type AttendanceStatus = 'unknown' | 'attended' | 'no_show';
+
+/**
+ * `booking` (migration 0004; `source` and `booked_at` from migration 0006; `attendance` and `no_show_block_id`
+ * from migration 0021, US-130).
+ */
 export interface BookingTable {
   id: Generated<string>;
   class_id: string;
@@ -34,6 +39,24 @@ export interface BookingTable {
   status: 'confirmed' | 'pending_payment' | 'cancelled';
   source: Generated<'direct' | 'waitlist'>;
   booked_at: Generated<Date>;
+  attendance: Generated<AttendanceStatus>;
+  /** The block this no-show was counted for; null while it is uncounted. */
+  no_show_block_id: string | null;
+  created_at: Generated<Date>;
+}
+
+export type BookingBlockReason = 'no_show' | 'manual';
+
+/** `booking_block` (migration 0021, US-130). A block is active while `starts_at <= now < ends_at`. */
+export interface BookingBlockTable {
+  id: Generated<string>;
+  member_id: string;
+  reason: BookingBlockReason;
+  starts_at: Date;
+  ends_at: Date;
+  /** Number of no-shows counted when the block was created; null for a `manual` block. */
+  no_show_count: number | null;
+  lifted_at: Date | null;
   created_at: Generated<Date>;
 }
 
@@ -51,6 +74,7 @@ export interface Database {
   user_session: UserSessionTable;
   gym_class: GymClassTable;
   booking: BookingTable;
+  booking_block: BookingBlockTable;
   waitlist_entry: WaitlistEntryTable;
   import_member_alias: ImportMemberAliasTable;
 }
